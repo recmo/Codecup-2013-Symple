@@ -110,11 +110,12 @@ public:
 	BoardPoint randomPoint() const;
 	
 protected:
+	friend class PointIterator;
 	union {
 		uint16 rows[16];
 		uint64 bits[4];
 	};
-	BoardPoint planePoint(int plane, int index) const;
+	static BoardPoint planePoint(int plane, int index);
 };
 
 std::ostream& operator<<(std::ostream& out, const BoardMask& boardMask);
@@ -182,7 +183,7 @@ BoardMask BoardMask::expanded() const
 	result.bits[3] |= bits[3] << 1;
 	result.bits[3] |= bits[3] >> 16;
 	result.bits[3] |= bits[3] << 16;
-	result.bits[3] &= field;
+	result.bits[3] &= 0x00007FFF7FFF7FFFULL;;
 	return result;
 }
 
@@ -245,7 +246,7 @@ BoardMask BoardMask::operator~() const
 	result.bits[0] = (~bits[0]) & field;
 	result.bits[1] = (~bits[1]) & field;
 	result.bits[2] = (~bits[2]) & field;
-	result.bits[3] = (~bits[3]) & field;
+	result.bits[3] = (~bits[3]) & 0x00007FFF7FFF7FFFULL;
 	return result;
 }
 
@@ -299,7 +300,7 @@ BoardPoint BoardMask::randomPoint() const
 	return planePoint(3, indexOfNthBit(bits[3], index));
 }
 
-BoardPoint BoardMask::planePoint(int plane, int index) const
+BoardPoint BoardMask::planePoint(int plane, int index)
 {
 	int vertical = index / 16;
 	int horizontal = index - 16 * vertical;
@@ -323,6 +324,48 @@ std::ostream& operator<<(std::ostream& out, const BoardMask& board)
 	return out;
 }
 
+
+//
+//   P O I N T   I T E R A T O R
+//
+
+class PointIterator
+{
+public:
+	PointIterator(const BoardMask& boardMask);
+	~PointIterator() { }
+	
+	bool next();
+	BoardPoint point() const { return _point; }
+	
+protected:
+	const BoardMask& _boardMask;
+	BoardPoint _point;
+	int _plane;
+	uint64 _bits;
+};
+
+PointIterator::PointIterator(const BoardMask& boardMask)
+: _boardMask(boardMask)
+, _point()
+, _plane(0)
+, _bits(boardMask.bits[0])
+{
+}
+
+bool PointIterator::next()
+{
+	while(_bits == 0) {
+		if(_plane >= 3)
+			return false;
+		++_plane;
+		_bits = _boardMask.bits[_plane];
+	}
+	int index = __builtin_ctzll(_bits);
+	_bits ^= 1ULL << index;
+	_point = BoardMask::planePoint(_plane, index);
+	return true;
+}
 
 //
 //   G R O U P   I T E R A T O R
@@ -476,7 +519,9 @@ public:
 	const BoardMask& black() const { return _black; }
 	Board& black(const BoardMask& value) { _black = value; return *this; }
 	uint64 hash() const { return _hash; }
+	bool hasExpanded() const { return _hasExpanded; }
 	void recalculateHash();
+	
 	
 	void whiteMove(const Move& move);
 	void blackMove(const Move& move);
@@ -569,55 +614,54 @@ public:
 	MovesIterator(const Board& board);
 	~MovesIterator() { }
 	
-	bool hasNext();
-	void next();
+	bool next();
 	
-	/// TODO: Current move?
+	uint64 count() const;
+	Move move(uint64 index) const;
 	
 protected:
 	const Board& _board;
+	BoardMask _explore;
 	std::vector<BoardMask> _groups;
 };
 
 MovesIterator::MovesIterator(const Board& board)
 : _board(board)
+, _groups(GroupIterator::list(_board.white()))
 {
 	// Calculate moves for white:
-	
 	BoardMask occupied = _board.black() | _board.white();
 	BoardMask unoccupied = ~occupied;
-	
 	BoardMask expand = _board.white().expanded() - occupied;
-	
-	std::cerr << expand << std::endl;
-	std::cerr << expand.popcount() << std::endl;
-	
-	GroupIterator gi(_board.white());
-	while(gi.next()) {
-		BoardMask groupExpand = gi.group();
-		
-		groupExpand.expand();
-		groupExpand -= occupied;
-		
-		if(groupExpand.isEmpty())
-			continue;
-		
-		std::cerr << groupExpand << std::endl;
-		std::cerr << groupExpand.popcount() << std::endl;
-		std::cerr << groupExpand.randomPoint() << std::endl;
-	}
+	_explore = unoccupied - expand;
 	
 	/// TODO: Handle connecting moves
-	
-	BoardMask newGroup = unoccupied - expand;
-	
-	std::cerr << newGroup << std::endl;
-	std::cerr << newGroup.popcount() << std::endl;
-	std::cerr << newGroup.randomPoint() << std::endl;
-	
 	/// TODO: Handle black special move
-	
 }
+
+uint64 MovesIterator::count() const
+{
+	uint64 exploreMoves = _explore.popcount();
+	
+	uint64 expandMoves = 0;
+	if(_groups.size() > 0) {
+		expandMoves = 1;
+		for(int i = 0; i < _groups.size(); ++i)
+			expandMoves *= _groups[i].popcount();
+	}
+		
+	
+	uint64 count = 1;
+	
+	// In order to compensate for any advantage to White for playing first Black has a special move. If no player has expanded yet, Black has the option of expansion followed by exploration in the same turn. Obviously this move can be used at most once during a game.
+	if(!_board.hasExpanded() && false) {
+		uint64 specialMoves = exploreMoves * expandMoves;
+	}
+	
+	return expandMoves + exploreMoves;
+}
+
+
 
 
 
@@ -803,6 +847,15 @@ int main(int argc, char* argv[])
 		m = m.expanded();
 		m.set(BoardPoint(rand() % 15, rand() % 15));
 	}
+	
+	std::cerr << m << std::endl;
+	PointIterator pi(m);
+	while(pi.next())
+		std::cerr << pi.point() << " ";
+	std::cerr << std::endl;
+	
+	return 0;
+	
 	b.black(m);
 	m = BoardMask();
 	for(int i = 0 ; i < 5; ++i) {
