@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <time.h>
 #include <sstream>
+#include <limits>
 
 /// @see http://fierz.ch/strategy2.htm
 /// @see http://senseis.xmp.net/?UCT
@@ -574,12 +575,9 @@ void TurnIterator::choose(const BoardPoint& point)
 	_turnMoves.set(point);
 	BoardMask unoccupied = ~(_player | _opponent);
 	
-	std::cerr << "Turn moves: " << _turnMoves << std::endl;
-	
 	// The player can make one exploration move
 	if(!_player.expanded().isSet(point)) {
 		_moves = BoardMask();
-		std::cerr << "Player done!" << std::endl;
 		return;
 	}
 	
@@ -726,42 +724,75 @@ void Table::put(const TableEntry& entry)
 
 class ScoreHeuristic {
 public:
-	ScoreHeuristic();
+	ScoreHeuristic(const Board& board);
 	~ScoreHeuristic() {}
 	
-	sint32 evaluate(const Board& board);
+	sint32 evaluate();
 	
 protected:
+	const Board& _board;
 	sint32 spotScore[225][15][15];
 	sint32 groupScore[225][15][15];
 };
 
-ScoreHeuristic heuristic;
-
-ScoreHeuristic::ScoreHeuristic()
+ScoreHeuristic::ScoreHeuristic(const Board& board)
+: _board(board)
 {
+}
+
+sint32 ScoreHeuristic::evaluate()
+{
+	sint32 score = 0;
+	
+	int progress = (_board.black() | _board.white()).popcount();
+	
+	// The score of each player is determined by counting the number of stones he has placed on the board. 
+	score += 1000 * _board.white().popcount();
+	score -= 1000 * _board.black().popcount();
+	
+	// For each separate group 6 points will be subtracted. Note that at least 6 points will be subtracted since the stones will always form at least one group.
+	int whiteGroups = GroupIterator::count(_board.white());
+	int blackGroups = GroupIterator::count(_board.black());
+	int groupsDiscount = blackGroups - whiteGroups;
+	if(progress > 150) {
+		score += 6000 * groupsDiscount;
+	} else if (whiteGroups + blackGroups < 15) {
+		score += -6000 * groupsDiscount;
+	} else {
+		score += 1000 * groupsDiscount;
+	}
+	
+	// Add points for expansion room
+	BoardMask unoccupied = ~(_board.white() | _board.black());
+	score += 100 * (_board.white().expanded() & unoccupied).popcount();
+	score -= 100 * (_board.black().expanded() & unoccupied).popcount();
+	
 	/// NOTE: Enclosed spaces are very valuable, if the opponent fills them he
 	/// will loose groupPenalty - space_size points, if we end up having to fill them we will gain points.
 	///
 	/// Space size     1 2 3 4 5 6
 	/// Opponent loss  5 4 3 2 1 0
 	/// Heuristic      3 3 2 1 1 0
-}
-
-sint32 ScoreHeuristic::evaluate(const Board& board)
-{
-	sint32 score = 0;
+	sint32 voidHeuristic[7] = {0, 3500, 3000, 2500, 2000, 1500, 1000};
+	GroupIterator gi(unoccupied);
+	while(gi.next()) {
+		int voidSize = gi.group().popcount();
+		if(voidSize > 6)
+			continue;
+		BoardMask border = gi.group().expand();
+		bool bordersWhite = !(_board.white() & border).isEmpty();
+		bool bordersBlack = !(_board.white() & border).isEmpty();
+		if(bordersWhite && !bordersBlack) {
+			score += voidHeuristic[voidSize];
+		} else if (!bordersWhite && bordersBlack) {
+			score -= voidHeuristic[voidSize];
+		}
+	}
 	
-	// The score of each player is determined by counting the number of stones he has placed on the board. 
-	score += board.white().popcount();
-	score -= board.black().popcount();
-	
-	// For each separate group 6 points will be subtracted. Note that at least 6 points will be subtracted since the stones will always form at least one group.
-	score -= 6 * GroupIterator::count(board.white());
-	score += 6 * GroupIterator::count(board.black());
 	
 	// The player with the highest score gets 100 bonus points.
-	score += 100 * sgn(score);
+	if(progress == 225)
+		score += 100000 * sgn(score);
 	
 	// Score upper bound: 15 x 15 - 6 + 100 = 319
 	// Scores are multiplied by 2^10 to create space for fractional points
@@ -842,7 +873,32 @@ std::string Game::makeMoves()
 	while(!ti.done()) {
 		if(!result.str().empty())
 			result << "-";
-		BoardPoint move = ti.moves().randomPoint();
+		
+		BoardMask validMoves = ti.moves();
+		BoardMask goodMoves = validMoves;
+		sint32 goodScore = -0x7FFFFFFF;
+		PointIterator pi(validMoves);
+		while(pi.next()) {
+			BoardPoint move = pi.point();
+			Board afterMove = _board;
+			if(_isWhite)
+				afterMove.whiteMove(move);
+			else
+				afterMove.blackMove(move);
+			ScoreHeuristic sc(afterMove);
+			sint32 moveScore = sc.evaluate();
+			if(_isBlack)
+				moveScore = -moveScore;
+			if(moveScore > goodScore) {
+				goodScore = moveScore;
+				goodMoves = BoardMask();
+				goodMoves.set(move);
+			} else if (moveScore == goodScore) {
+				goodMoves.set(move);
+			}
+		}
+		std::cerr << "Good score: " << goodScore << std::endl;
+		BoardPoint move = goodMoves.randomPoint();
 		ti.choose(move);
 		result << move;
 		moves.push_back(move);
