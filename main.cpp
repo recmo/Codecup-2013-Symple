@@ -509,6 +509,11 @@ std::istream& operator>>(std::istream& in, Move& move)
 //   B O A R D
 //
 
+enum Colour {
+	White,
+	Black
+};
+
 class Board {
 public:
 	Board();
@@ -522,7 +527,6 @@ public:
 	bool hasExpanded() const { return _hasExpanded; }
 	void recalculateHash();
 	
-	
 	void whiteMove(const Move& move);
 	void blackMove(const Move& move);
 	
@@ -531,6 +535,7 @@ protected:
 	const static uint64 zobristBlack[15*15];
 	BoardMask _white;
 	BoardMask _black;
+	BoardMask _currentMove;
 	bool _hasExpanded;
 	uint64 _hash;
 };
@@ -605,60 +610,59 @@ std::ostream& operator<<(std::ostream& out, const Board& board)
 
 
 //
-//   M O V E S   I T E R A T O R
+//   T U R N   I T E R A T O R
 //
 
-class MovesIterator
+class TurnIterator
 {
 public:
-	MovesIterator(const Board& board);
-	~MovesIterator() { }
+	TurnIterator(const BoardMask& player, const BoardMask& opponent);
+	~TurnIterator() { }
 	
-	bool next();
-	
-	uint64 count() const;
-	Move move(uint64 index) const;
+	bool done() const { return _moves.isEmpty(); }
+	BoardMask moves() const { return _moves; }
+	void choose(const BoardPoint& point);
 	
 protected:
-	const Board& _board;
-	BoardMask _explore;
-	std::vector<BoardMask> _groups;
+	const BoardMask& _player;
+	const BoardMask& _opponent;
+	BoardMask _turnMoves;
+	BoardMask _moves;
 };
 
-MovesIterator::MovesIterator(const Board& board)
-: _board(board)
-, _groups(GroupIterator::list(_board.white()))
+TurnIterator::TurnIterator(const BoardMask& player, const BoardMask& opponent)
+: _player(player)
+, _opponent(opponent)
+, _turnMoves()
+, _moves(~(_player | _opponent)) // All empty spaces
 {
-	// Calculate moves for white:
-	BoardMask occupied = _board.black() | _board.white();
-	BoardMask unoccupied = ~occupied;
-	BoardMask expand = _board.white().expanded() - occupied;
-	_explore = unoccupied - expand;
-	
-	/// TODO: Handle connecting moves
-	/// TODO: Handle black special move
 }
 
-uint64 MovesIterator::count() const
+void TurnIterator::choose(const BoardPoint& point)
 {
-	uint64 exploreMoves = _explore.popcount();
+	_turnMoves.set(point);
+	BoardMask unoccupied = ~(_player | _opponent);
 	
-	uint64 expandMoves = 0;
-	if(_groups.size() > 0) {
-		expandMoves = 1;
-		for(int i = 0; i < _groups.size(); ++i)
-			expandMoves *= _groups[i].popcount();
-	}
-		
-	
-	uint64 count = 1;
-	
-	// In order to compensate for any advantage to White for playing first Black has a special move. If no player has expanded yet, Black has the option of expansion followed by exploration in the same turn. Obviously this move can be used at most once during a game.
-	if(!_board.hasExpanded() && false) {
-		uint64 specialMoves = exploreMoves * expandMoves;
+	// The player can make one exploration move
+	if(!_player.expanded().isSet(point)) {
+		_moves = BoardMask();
+		return;
 	}
 	
-	return expandMoves + exploreMoves;
+	// Or the player can expand every group by one stone
+	GroupIterator gi(_player);
+	_moves = _player.expanded() & unoccupied;
+	while(gi.next()) {
+		BoardMask groupExpansion = gi.group().expand();
+		groupExpansion &= unoccupied;
+		if(!(_turnMoves & groupExpansion).isEmpty())
+			_moves -= groupExpansion;
+	}
+	
+	// After all expansion moves are done
+	// and no expansion moves happened before
+	// black has the option of an additional exploration move
+	/// TODO
 }
 
 
@@ -802,7 +806,12 @@ ScoreHeuristic heuristic;
 
 ScoreHeuristic::ScoreHeuristic()
 {
-
+	/// NOTE: Enclosed spaces are very valuable, if the opponent fills them he
+	/// will loose groupPenalty - space_size points, if we end up having to fill them we will gain points.
+	///
+	/// Space size     1 2 3 4 5 6
+	/// Opponent loss  5 4 3 2 1 0
+	/// Heuristic      3 3 2 1 1 0
 }
 
 sint32 ScoreHeuristic::evaluate(const Board& board)
@@ -828,8 +837,6 @@ sint32 ScoreHeuristic::evaluate(const Board& board)
 	return score;
 }
 
-
-
 //
 //  M A I N
 //
@@ -843,19 +850,11 @@ int main(int argc, char* argv[])
 	std::cerr << "Table entry size: " << sizeof(TableEntry) << std::endl;
 	std::cerr << "Table size: " << table.size() << std::endl;
 	
+	/*
 	for(int i = 0 ; i < 5; ++i) {
 		m = m.expanded();
 		m.set(BoardPoint(rand() % 15, rand() % 15));
 	}
-	
-	std::cerr << m << std::endl;
-	PointIterator pi(m);
-	while(pi.next())
-		std::cerr << pi.point() << " ";
-	std::cerr << std::endl;
-	
-	return 0;
-	
 	b.black(m);
 	m = BoardMask();
 	for(int i = 0 ; i < 5; ++i) {
@@ -864,13 +863,24 @@ int main(int argc, char* argv[])
 	}
 	m -= b.black();
 	b.white(m);
-	
 	b.recalculateHash();
-	std::cerr << b << b.hash() << std::endl;
+	*/
 	
-	MovesIterator mi(b);
+	BoardMask white;
+	white.set(BoardPoint(0,0));
+	white.set(BoardPoint(2,0));
+	BoardMask black;
+	black.set(BoardPoint(0,1));
+	black.set(BoardPoint(2,1));
+	b.white(white);
+	b.black(black);
 	
-	
+	std::cerr << b << std::endl;
+	TurnIterator mi(b.black(), b.white());
+	std::cerr << mi.moves() << std::endl;
+	std::cerr << BoardPoint(3,0) << std::endl;
+	mi.choose(BoardPoint(3,0));
+	std::cerr << mi.moves() << std::endl;
 	
 	return 0;
 }
