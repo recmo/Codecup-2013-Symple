@@ -773,7 +773,7 @@ sint32 ScoreHeuristic::evaluate()
 	/// Space size     1 2 3 4 5 6
 	/// Opponent loss  5 4 3 2 1 0
 	/// Heuristic      3 3 2 1 1 0
-	sint32 voidHeuristic[7] = {0, 3500, 3000, 2500, 2000, 1500, 1000};
+	sint32 voidHeuristic[7] = {0, 5000, 3000, 2000, 1000, 500, 100};
 	GroupIterator gi(unoccupied);
 	while(gi.next()) {
 		int voidSize = gi.group().popcount();
