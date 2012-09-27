@@ -3,7 +3,7 @@
 #include <vector>
 #include <cstdlib>
 #include <time.h>
-#include <fstream>
+#include <sstream>
 
 /// @see http://fierz.ch/strategy2.htm
 /// @see http://senseis.xmp.net/?UCT
@@ -54,7 +54,9 @@ public:
 	
 	int number() const { return _vertical * 15 + _horizontal; }
 	int horizontal() const { return _horizontal; }
+	BoardPoint& horizontal(int value) { _horizontal = value; return *this; }
 	int vertical() const { return _vertical; }
+	BoardPoint& vertical(int value) { _vertical = value; return *this; }
 	
 	BoardPoint left() const { return BoardPoint(_horizontal - 1, _vertical); }
 	BoardPoint right() const { return BoardPoint(_horizontal + 1, _vertical); }
@@ -73,8 +75,12 @@ std::ostream& operator<<(std::ostream& out, const BoardPoint& point)
 	return out;
 }
 
-std::istream& operator<<(std::istream& in, const BoardPoint& point)
+std::istream& operator>>(std::istream& in, BoardPoint& point)
 {
+	point.horizontal(in.get() - 'A');
+	int vertical;
+	in >> vertical;
+	point.vertical(vertical - 1);
 	return in;
 }
 
@@ -436,76 +442,6 @@ bool GroupIterator::next()
 }
 
 //
-//   M O V E
-//
-
-class Move
-{
-public:
-	Move();
-	Move(const BoardPoint& point);
-	~Move() { }
-	
-	const std::vector<BoardPoint>& points() const { return _points; }
-	
-	bool isExpansion(const BoardMask& boardMask) const;
-	
-protected:
-	std::vector<BoardPoint> _points;
-};
-
-std::ostream& operator<<(std::ostream& out, const Move& move);
-std::istream& operator>>(std::istream& in, Move& move);
-
-Move::Move()
-: _points()
-{
-}
-
-Move::Move(const BoardPoint& point)
-: _points()
-{
-	_points.push_back(point);
-}
-
-bool Move::isExpansion(const BoardMask& boardMask) const
-{
-	if(_points.size() > 1)
-		return true;
-	if(_points.size() == 0)
-		return false;
-	BoardPoint p = _points[0];
-	if(p.horizontal() > 0 && boardMask.isSet(p.left()))
-		return true;
-	if(p.horizontal() < 14 && boardMask.isSet(p.right()))
-		return true;
-	if(p.vertical() > 0 && boardMask.isSet(p.down()))
-		return true;
-	if(p.vertical() < 14 && boardMask.isSet(p.up()))
-		return true;
-	return false;
-}
-
-std::ostream& operator<<(std::ostream& out, const Move& move)
-{
-	for(int i = 0; i < move.points().size(); ++i) {
-		out << move.points()[i];
-		if(i + 1 < move.points().size())
-			out << "-";
-	}
-	return out;
-}
-
-std::istream& operator>>(std::istream& in, Move& move)
-{
-	/// TODO
-	return in;
-}
-
-
-
-
-//
 //   B O A R D
 //
 
@@ -527,8 +463,10 @@ public:
 	bool hasExpanded() const { return _hasExpanded; }
 	void recalculateHash();
 	
-	void whiteMove(const Move& move);
-	void blackMove(const Move& move);
+	bool gameOver() const { return (~(_white | _black)).isEmpty(); }
+	
+	void whiteMove(const BoardPoint& move);
+	void blackMove(const BoardPoint& move);
 	
 protected:
 	const static uint64 zobristWhite[15*15];
@@ -550,25 +488,18 @@ Board::Board()
 {
 }
 
-
-void Board::whiteMove(const Move& move)
+void Board::whiteMove(const BoardPoint& move)
 {
-	_hasExpanded |= move.isExpansion(_white);
-	const std::vector<BoardPoint>& points = move.points();
-	for(std::vector<BoardPoint>::const_iterator i = points.begin(); i != points.end(); ++i) {
-		_white.set(*i);
-		_hash ^= zobristWhite[i->number()];
-	}
+	_hasExpanded |= _white.expanded().isSet(move);
+	_white.set(move);
+	_hash ^= zobristWhite[move.number()];
 }
 
-void Board::blackMove(const Move& move)
+void Board::blackMove(const BoardPoint& move)
 {
-	_hasExpanded |= move.isExpansion(_black);
-	const std::vector<BoardPoint>& points = move.points();
-	for(std::vector<BoardPoint>::const_iterator i = points.begin(); i != points.end(); ++i) {
-		_black.set(*i);
-		_hash ^= zobristBlack[i->number()];
-	}
+	_hasExpanded |= _black.expanded().isSet(move);
+	_black.set(move);
+	_hash ^= zobristBlack[move.number()];
 }
 
 void Board::recalculateHash()
@@ -643,9 +574,12 @@ void TurnIterator::choose(const BoardPoint& point)
 	_turnMoves.set(point);
 	BoardMask unoccupied = ~(_player | _opponent);
 	
+	std::cerr << "Turn moves: " << _turnMoves << std::endl;
+	
 	// The player can make one exploration move
 	if(!_player.expanded().isSet(point)) {
 		_moves = BoardMask();
+		std::cerr << "Player done!" << std::endl;
 		return;
 	}
 	
@@ -838,50 +772,120 @@ sint32 ScoreHeuristic::evaluate(const Board& board)
 }
 
 //
+//
+//
+
+
+
+class Game {
+public:
+	Game();
+	~Game() { }
+	
+	void play();
+	
+protected:
+	Board _board;
+	bool _isWhite;
+	bool _isBlack;
+	std::string makeMoves();
+	void receiveMoves(const std::string& moves);
+};
+
+Game::Game()
+: _board()
+, _isWhite(false)
+, _isBlack(false)
+{
+}
+
+void Game::play()
+{
+	std::string line;
+	std::cin >> line;
+	std::cerr << "In: " << line << std::endl;
+	if(line == "Start") {
+		_isWhite = true;
+		_isBlack = false;
+	} else {
+		_isWhite = false;
+		_isBlack = true;
+		receiveMoves(line);
+	}
+	for(;;) {
+		std::string moves = makeMoves();
+		std::cerr << _board << std::endl;
+		std::cerr << "Out: " << moves << std::endl;
+		std::cout << moves << std::endl;
+		if(_board.gameOver())
+			break;
+		std::cin >> line;
+		std::cerr << "In: " << line << std::endl;
+		receiveMoves(line);
+		std::cerr << _board << std::endl;
+		if(_board.gameOver())
+			break;
+	}
+	std::cin >> line;
+	std::cerr << "In: " << line << std::endl;
+	std::cerr << "Quiting" << line << std::endl;
+	return;
+}
+
+std::string Game::makeMoves()
+{
+	std::stringstream result;
+	TurnIterator ti(
+		(_isWhite) ? _board.white() : _board.black(),
+		(_isWhite) ? _board.black() : _board.white());
+	std::vector<BoardPoint> moves;
+	while(!ti.done()) {
+		if(!result.str().empty())
+			result << "-";
+		BoardPoint move = ti.moves().randomPoint();
+		ti.choose(move);
+		result << move;
+		moves.push_back(move);
+	}
+	for(int i = 0; i < moves.size(); ++i) {
+		if(_isWhite)
+			_board.whiteMove(moves[i]);
+		else
+			_board.blackMove(moves[i]);
+	}
+	return result.str();
+}
+
+void Game::receiveMoves(const std::string& moves)
+{
+	std::stringstream ss(moves);
+	BoardPoint move;
+	while(ss.good()) {
+		ss >> move;
+		std::cerr << "Move " << move << std::endl;
+		ss.get(); // the minus character
+		if(_isWhite)
+			_board.blackMove(move);
+		else
+			_board.whiteMove(move);
+	}
+}
+
+
+//
 //  M A I N
 //
 
 int main(int argc, char* argv[])
 {
 	srand(time(0));
-	Board b;
-	BoardMask m;
-	
 	std::cerr << "Table entry size: " << sizeof(TableEntry) << std::endl;
 	std::cerr << "Table size: " << table.size() << std::endl;
 	
-	/*
-	for(int i = 0 ; i < 5; ++i) {
-		m = m.expanded();
-		m.set(BoardPoint(rand() % 15, rand() % 15));
-	}
-	b.black(m);
-	m = BoardMask();
-	for(int i = 0 ; i < 5; ++i) {
-		m = m.expanded();
-		m.set(BoardPoint(rand() % 15, rand() % 15));
-	}
-	m -= b.black();
-	b.white(m);
-	b.recalculateHash();
-	*/
+	Game g;
+	g.play();
 	
-	BoardMask white;
-	white.set(BoardPoint(0,0));
-	white.set(BoardPoint(2,0));
-	BoardMask black;
-	black.set(BoardPoint(0,1));
-	black.set(BoardPoint(2,1));
-	b.white(white);
-	b.black(black);
-	
-	std::cerr << b << std::endl;
-	TurnIterator mi(b.black(), b.white());
-	std::cerr << mi.moves() << std::endl;
-	std::cerr << BoardPoint(3,0) << std::endl;
-	mi.choose(BoardPoint(3,0));
-	std::cerr << mi.moves() << std::endl;
-	
+	std::cerr << "Exit" << std::endl;
 	return 0;
 }
 
