@@ -765,31 +765,28 @@ sint32 ScoreHeuristic::evaluate()
 	
 	// Add points for expansion room
 	BoardMask unoccupied = ~(_board.white() | _board.black());
-	score += 100 * (_board.white().expanded() & unoccupied).popcount();
-	score -= 100 * (_board.black().expanded() & unoccupied).popcount();
-	
-	/// NOTE: Enclosed spaces are very valuable, if the opponent fills them he
-	/// will loose groupPenalty - space_size points, if we end up having to fill them we will gain points.
-	///
-	/// Space size     1 2 3 4 5 6
-	/// Opponent loss  5 4 3 2 1 0
-	
-	// Without: 1281-1324
-	if(0){
-	sint32 voidHeuristic[7] = {0, 5000, 4000, 3000, 2000, 1000, 0};
-	GroupIterator gi(unoccupied);
-	while(gi.next()) {
-		int voidSize = gi.group().popcount();
-		if(voidSize > 6)
-			continue;
-		BoardMask border = gi.group().expanded() - gi.group();
-		if((border & _board.white()) == border) {
-			score += voidHeuristic[voidSize];
-		} else if ((border & _board.black()) == border) {
-			score -= voidHeuristic[voidSize];
-		}
-	}
-	}
+	BoardMask whiteExpanded = _board.white().expanded() & unoccupied;
+	BoardMask blackExpanded = _board.black().expanded() & unoccupied;
+	score += 100 * whiteExpanded.popcount();
+	score -= 100 * blackExpanded.popcount();
+	whiteExpanded.expand();
+	whiteExpanded &= unoccupied;
+	blackExpanded.expand();
+	blackExpanded &= unoccupied;
+	score += 50 * whiteExpanded.popcount();
+	score -= 50 * blackExpanded.popcount();
+	whiteExpanded.expand();
+	whiteExpanded &= unoccupied;
+	blackExpanded.expand();
+	blackExpanded &= unoccupied;
+	score += 25 * whiteExpanded.popcount();
+	score -= 25 * blackExpanded.popcount();
+	whiteExpanded.expand();
+	whiteExpanded &= unoccupied;
+	blackExpanded.expand();
+	blackExpanded &= unoccupied;
+	score += 12 * whiteExpanded.popcount();
+	score -= 12 * blackExpanded.popcount();
 	
 	// The player with the highest score gets 100 bonus points.
 	if(progress == 225)
