@@ -5,6 +5,7 @@
 #include <time.h>
 #include <sstream>
 #include <limits>
+#include <unistd.h>
 
 /// @see http://fierz.ch/strategy2.htm
 /// @see http://senseis.xmp.net/?UCT
@@ -754,12 +755,12 @@ sint32 ScoreHeuristic::evaluate()
 	int whiteGroups = GroupIterator::count(_board.white());
 	int blackGroups = GroupIterator::count(_board.black());
 	int groupsDiscount = blackGroups - whiteGroups;
-	if(progress > 150) {
-		score += 6000 * groupsDiscount;
-	} else if (whiteGroups + blackGroups < 15) {
-		score += -6000 * groupsDiscount;
-	} else {
-		score += 1000 * groupsDiscount;
+	score += 6000 * groupsDiscount;
+	const int convergeStart = 150;
+	const int growStart = 7;
+	if(progress < convergeStart) {
+		score += 9000 * min(whiteGroups, growStart);
+		score -= 9000 * min(blackGroups, growStart);
 	}
 	
 	// Add points for expansion room
@@ -772,32 +773,32 @@ sint32 ScoreHeuristic::evaluate()
 	///
 	/// Space size     1 2 3 4 5 6
 	/// Opponent loss  5 4 3 2 1 0
-	/// Heuristic      3 3 2 1 1 0
-	sint32 voidHeuristic[7] = {0, 5000, 3000, 2000, 1000, 500, 100};
+	
+	// Without: 1281-1324
+	if(0){
+	sint32 voidHeuristic[7] = {0, 5000, 4000, 3000, 2000, 1000, 0};
 	GroupIterator gi(unoccupied);
 	while(gi.next()) {
 		int voidSize = gi.group().popcount();
 		if(voidSize > 6)
 			continue;
-		BoardMask border = gi.group().expand();
-		bool bordersWhite = !(_board.white() & border).isEmpty();
-		bool bordersBlack = !(_board.white() & border).isEmpty();
-		if(bordersWhite && !bordersBlack) {
+		BoardMask border = gi.group().expanded() - gi.group();
+		if((border & _board.white()) == border) {
 			score += voidHeuristic[voidSize];
-		} else if (!bordersWhite && bordersBlack) {
+		} else if ((border & _board.black()) == border) {
 			score -= voidHeuristic[voidSize];
 		}
 	}
-	
+	}
 	
 	// The player with the highest score gets 100 bonus points.
 	if(progress == 225)
 		score += 100000 * sgn(score);
 	
-	// Score upper bound: 15 x 15 - 6 + 100 = 319
-	// Scores are multiplied by 2^10 to create space for fractional points
-	// This gives approximately 10 bits of headroom on msb and lsb side
-	score <<= 10;
+	// // Score upper bound: 15 x 15 - 6 + 100 = 319
+	// // Scores are multiplied by 2^10 to create space for fractional points
+	// // This gives approximately 10 bits of headroom on msb and lsb side
+	// score <<= 10;
 	
 	return score;
 }
@@ -935,6 +936,8 @@ void Game::receiveMoves(const std::string& moves)
 int main(int argc, char* argv[])
 {
 	srand(time(0));
+	srand(rand() ^ getpid());
+	std::cerr << "R " << argv[0]  << std::endl;
 	std::cerr << "Table entry size: " << sizeof(TableEntry) << std::endl;
 	std::cerr << "Table size: " << table.size() << std::endl;
 	
