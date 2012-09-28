@@ -756,8 +756,8 @@ sint32 ScoreHeuristic::evaluate()
 	int blackGroups = GroupIterator::count(_board.black());
 	int groupsDiscount = blackGroups - whiteGroups;
 	score += 6000 * groupsDiscount;
-	const int convergeStart = 150;
-	const int growStart = 7;
+	const int convergeStart = 180;
+	const int growStart = 9;
 	if(progress < convergeStart) {
 		score += 9000 * min(whiteGroups, growStart);
 		score -= 9000 * min(blackGroups, growStart);
