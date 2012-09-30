@@ -466,15 +466,11 @@ GroupIterator::GroupIterator(const BoardMask& boardMask)
 
 bool GroupIterator::next()
 {
-	std::cerr << "GroupIterator::next" << std::endl;
-	std::cerr << _remaining << std::endl;
 	if(_remaining.isEmpty())
 		return false;
 	
 	// Seed the new group with a single point
 	_group = BoardMask(_remaining.firstPoint());
-	std::cerr << "Group seed = " << std::endl;
-	std::cerr << _group << std::endl;
 	
 	// Expand and mask until fixed point
 	BoardMask old;
@@ -980,40 +976,10 @@ int main(int argc, char* argv[])
 	std::cerr << "R " << argv[0]  << std::endl;
 	//std::cerr << "Table entry size: " << sizeof(TableEntry) << std::endl;
 	//std::cerr << "Table size: " << table.size() << std::endl;
+	std::cerr << "sizeof(int): " << sizeof(int) << std::endl;
+	std::cerr << "sizeof(void*): " << sizeof(void*) << std::endl;
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
-	
-	BoardMask all;
-	all = ~all;
-	std::cerr << all << std::endl;
-	std::cerr << all.popcount() << std::endl;
-	
-	BoardMask bm;
-	
-	//BoardPoint bp(rand() % 15, rand() % 15);
-	BoardPoint bp(7, 13);
-	bm.set(bp);
-	std::cerr << bm << std::endl;
-	std::cerr << bp << std::endl;
-	std::cerr << bm.firstPoint() << std::endl;
-	std::cerr << PointIterator::firstPoint(bm) << std::endl;
-	
-	return 0;
-	
-	for(int i = 0; i < 3; ++i) {
-		bm.expand();
-		bm.set(PointIterator::randomPoint(all - bm));
-	}
-	
-	std::cerr << bm << std::endl;
-	std::cerr << bm.popcount() << std::endl;
-	
-	GroupIterator gi(bm);
-	while(gi.next()) {
-		std::cerr << gi.group() << std::endl;
-	}
-	
-	return 0;
 	
 	Game g;
 	g.play();
