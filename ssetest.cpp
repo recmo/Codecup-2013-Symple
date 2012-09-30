@@ -24,22 +24,25 @@ typedef __m128i m128;
 // or
 // xor
 
-std::ostream& operator<<(std::ostream& out, const m128 in) ssefunc;
-inline std::ostream& operator<<(std::ostream& out, const m128 in)
+void print128(std::ostream& out, uint8* data)
 {
-	union{
-		m128 vector;
-		uint8 bits[16];
-	};
-	vector = in;
 	out.fill('0');
 	out << std::hex;
 	for(int i = 15; i >= 0; --i) {
 		out.width(2);
-		out << int(bits[i]);
+		out << int(data[i]);
 	}
 	out.fill(' ');
 	out << std::dec;
+}
+
+std::ostream& operator<<(std::ostream& out, const m128 in) ssefunc;
+inline std::ostream& operator<<(std::ostream& out, m128 in)
+{
+	// Avoid http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35414
+	uint8 data[16] __attribute__ ((aligned (16)));
+	_mm_store_si128((m128*)(data), in);
+	print128(out, data);
 	return out;
 }
 
