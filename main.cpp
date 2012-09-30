@@ -22,7 +22,7 @@
 typedef __m128i m128;
 typedef uint8_t uint8;
 typedef uint16_t uint16;
-// typedef uint64_t uint64;
+typedef uint64_t uint64;
 typedef int32_t sint32;
 typedef uint32_t uint32;
 
@@ -62,6 +62,34 @@ int indexOfNthBit(uint64 bits, int n)
 }
 */
 
+int countLeadingZeros(uint64 n)
+{
+	/// @see http://chessprogramming.wikispaces.com/BitScan#DeBruijnMultiplation
+	const uint64 debruijn64 = 0x07EDD5E59A4E28C2ULL;
+	const int index64[64] = {
+		63,  0, 58,  1, 59, 47, 53,  2,
+		60, 39, 48, 27, 54, 33, 42,  3,
+		61, 51, 37, 40, 49, 18, 28, 20,
+		55, 30, 34, 11, 43, 14, 22,  4,
+		62, 57, 46, 52, 38, 26, 32, 41,
+		50, 36, 17, 19, 29, 10, 13, 21,
+		56, 45, 25, 31, 35, 16,  9, 12,
+		44, 24, 15,  8, 23,  7,  6,  5
+	};
+	return index64[((n & -n) * debruijn64) >> 58];
+}
+
+int indexOfNthBit(uint64 bits, int n)
+{
+	// std::cerr << std::hex << bits << std::dec << " " << n << std::endl;
+	while(n) {
+		bits &= bits - 1;
+		--n;
+	}
+	// std::cerr << countLeadingZeros(bits) << std::endl;
+	return countLeadingZeros(bits);
+}
+
 int indexOfNthBit(uint32 bits, int n)
 {
 	for(;;) {
@@ -76,15 +104,15 @@ int indexOfNthBit(uint32 bits, int n)
 std::ostream& operator<<(std::ostream& out, const m128 in)
 {
 	union{
-		uint16 bits[8];
+		uint8 bits[16];
 		m128 vector;
 	};
 	vector = in;
 	out.fill('0');
 	out << std::hex;
-	for(int i = 0; i < 8; ++i) {
-		out.width(4);
-		out << bits[i];
+	for(int i = 15; i >= 0; --i) {
+		out.width(2);
+		out << int(bits[i]);
 	}
 	out.fill(' ');
 	out << std::dec;
@@ -97,29 +125,29 @@ std::ostream& operator<<(std::ostream& out, const m128 in)
 
 class BoardPoint {
 public:
-	BoardPoint(): _horizontal(0), _vertical(0) { }
-	BoardPoint(int horizontal, int vertical): _horizontal(horizontal), _vertical(vertical) { }
-	~BoardPoint() {}
+	BoardPoint(): _index(0) { }
+	BoardPoint(int index): _index(index) { }
+	BoardPoint(int horizontal, int vertical): _index(horizontal | (vertical << 4)) { }
+	~BoardPoint() { }
 	
-	int number() const { return _vertical * 15 + _horizontal; }
-	int horizontal() const { return _horizontal; }
-	BoardPoint& horizontal(int value) { _horizontal = value; return *this; }
-	int vertical() const { return _vertical; }
-	BoardPoint& vertical(int value) { _vertical = value; return *this; }
+	int number() const { return _index; }
+	int horizontal() const { return _index & 0x0f; }
+	BoardPoint& horizontal(int value) { _index = value | (_index & 0xf0); return *this; }
+	int vertical() const { return _index >> 4; }
+	BoardPoint& vertical(int value) { _index = (value << 4) | (_index & 0x0f); return *this; }
 	
-	BoardPoint left() const { return BoardPoint(_horizontal - 1, _vertical); }
-	BoardPoint right() const { return BoardPoint(_horizontal + 1, _vertical); }
-	BoardPoint up() const { return BoardPoint(_horizontal, _vertical + 1); }
-	BoardPoint down() const { return BoardPoint(_horizontal, _vertical - 1); }
+	BoardPoint left() const { return BoardPoint(_index - 1); }
+	BoardPoint right() const { return BoardPoint(_index + 1); }
+	BoardPoint up() const { return BoardPoint(_index + 16); }
+	BoardPoint down() const { return BoardPoint(_index - 16); }
 	
 protected:
-	int _horizontal;
-	int _vertical;
+	int _index;
 };
 
 std::ostream& operator<<(std::ostream& out, const BoardPoint& point)
 {
-	char hor[2] = { 'A' + char(point.horizontal()), 0x00 };
+	char hor[2] = {'A' + char(point.horizontal()), 0x00};
 	out << hor << 1 + point.vertical();
 	return out;
 }
@@ -200,24 +228,22 @@ inline BoardMask& BoardMask::operator=(const BoardMask& other)
 inline bool BoardMask::operator==(const BoardMask& other) const
 {
 	m128 vectCompare = _mm_cmpeq_epi8(bits[0], other.bits[0]);
-	vectCompare = _mm_or_si128(vectCompare, _mm_cmpeq_epi8(bits[1], other.bits[1]));
-	return _mm_movemask_epi8(vectCompare);
+	vectCompare = _mm_and_si128(vectCompare, _mm_cmpeq_epi8(bits[1], other.bits[1]));
+	return _mm_movemask_epi8(vectCompare) == 0xffff;
 }
 
 inline BoardMask BoardMask::expanded() const
 {
 	BoardMask result;
 	m128 mask = _mm_set1_epi16(0x7fff);
-	std::cerr << mask << std::endl;
 	result.bits[0]  = bits[0];
 	result.bits[0] = _mm_or_si128(result.bits[0], _mm_slli_epi16(bits[0], 1));
 	result.bits[0] = _mm_or_si128(result.bits[0], _mm_srli_epi16(bits[0], 1));
 	result.bits[0] = _mm_or_si128(result.bits[0], _mm_slli_si128(bits[0], 2));
 	result.bits[0] = _mm_or_si128(result.bits[0], _mm_srli_si128(bits[0], 2));
-	result.bits[0] = _mm_or_si128(result.bits[0], _mm_slli_si128(bits[0], 14));
+	result.bits[0] = _mm_or_si128(result.bits[0], _mm_slli_si128(bits[1], 14));
 	result.bits[0] = _mm_and_si128(result.bits[0], mask);
 	mask = _mm_xor_si128(mask, _mm_slli_si128(mask, 14));
-	std::cerr << mask << std::endl;
 	result.bits[1] = bits[1];
 	result.bits[1] = _mm_or_si128(result.bits[1], _mm_srli_si128(bits[0], 14));
 	result.bits[1] = _mm_or_si128(result.bits[1], _mm_slli_epi16(bits[1], 1));
@@ -271,8 +297,8 @@ inline BoardMask& BoardMask::operator|=(const BoardMask& other)
 
 inline BoardMask& BoardMask::operator-=(const BoardMask& other)
 {
-	bits[0] = _mm_andnot_si128(bits[0], other.bits[0]);
-	bits[1] = _mm_andnot_si128(bits[1], other.bits[1]);
+	bits[0] = _mm_andnot_si128(other.bits[0], bits[0]);
+	bits[1] = _mm_andnot_si128(other.bits[1], bits[1]);
 	return *this;
 }
 
@@ -295,9 +321,9 @@ inline BoardMask BoardMask::operator~() const
 {
 	BoardMask result;
 	m128 mask = _mm_set1_epi16(0x7fff);
-	result.bits[0] = _mm_andnot_si128(mask, bits[0]);
-	mask =_mm_xor_si128(mask, _mm_slli_si128(mask, (uint8)(14)));
-	result.bits[1] = _mm_andnot_si128(mask, bits[1]);
+	result.bits[0] = _mm_andnot_si128(bits[0], mask);
+	mask = _mm_xor_si128(mask, _mm_slli_si128(mask, 14));
+	result.bits[1] = _mm_andnot_si128(bits[1], mask);
 	return result;
 }
 
@@ -340,67 +366,91 @@ inline bool BoardMask::isEmpty() const
 
 inline BoardPoint BoardMask::firstPoint() const
 {
-	/// TODO
-	/*
-	if(bits[0])
-		return planePoint(0, __builtin_ctzl(bits[0]));
-	if(bits[1])
-		return planePoint(1, __builtin_ctzl(bits[1]));
-	if(bits[2])
-		return planePoint(2, __builtin_ctzl(bits[2]));
-	if(bits[3])
-		return planePoint(3, __builtin_ctzl(bits[3]));
-	if(bits[4])
-		return planePoint(4, __builtin_ctzl(bits[4]));
-	if(bits[5])
-		return planePoint(5, __builtin_ctzl(bits[5]));
-	if(bits[6])
-		return planePoint(6, __builtin_ctzl(bits[6]));
-	if(bits[7])
-		return planePoint(7, __builtin_ctzl(bits[7]));
-	*/
+	union {
+		m128 vector[2];
+		uint64 ints[4];
+	};
+	vector[0] = bits[0];
+	vector[1] = bits[1];
+	if(ints[0])
+		return BoardPoint(countLeadingZeros(ints[0]));
+	if(ints[1])
+		return BoardPoint(countLeadingZeros(ints[1]));
+	if(ints[2])
+		return BoardPoint(countLeadingZeros(ints[2]));
+	if(ints[3])
+		return BoardPoint(countLeadingZeros(ints[3]));
 	return BoardPoint();
 }
 
 inline BoardPoint BoardMask::randomPoint() const
 {
-	/// TODO
+	m128 a = bits[0];
+	m128 b = bits[1];
+	
+	// Replace all the bytes in a and b are by their popcount
+	const m128 mask0 = _mm_set1_epi8(0x55); // 0101 0101
+	a = _mm_sub_epi8(a, _mm_and_si128(_mm_srli_epi64(a, 1), mask0));
+	b = _mm_sub_epi8(b, _mm_and_si128(_mm_srli_epi64(b, 1), mask0));
+	const m128 mask1 = _mm_set1_epi8(0x33); // 0011 0011
+	a = _mm_add_epi8(_mm_and_si128(a, mask1), _mm_and_si128(_mm_srli_epi64(a, 2), mask1));
+	b = _mm_add_epi8(_mm_and_si128(b, mask1), _mm_and_si128(_mm_srli_epi64(b, 2), mask1));
+	const m128 mask2 = _mm_set1_epi8(0x0f); // 0000 1111
+	a = _mm_and_si128(_mm_add_epi8(a, _mm_srli_epi64(a, 4)), mask2);
+	b = _mm_and_si128(_mm_add_epi8(b, _mm_srli_epi64(b, 4)), mask2);
+	
+	std::cerr << " a = " << a << std::endl;
+	std::cerr << " b = " << b << std::endl;
+	
+	// Sum the byte-counts to quadword-counts
+	a = _mm_add_epi8(a, _mm_srli_si128(a, 1));
+	b = _mm_add_epi8(b, _mm_srli_si128(b, 1));
+	a = _mm_add_epi8(a, _mm_srli_si128(a, 2));
+	b = _mm_add_epi8(b, _mm_srli_si128(b, 2));
+	a = _mm_add_epi8(a, _mm_srli_si128(a, 4));
+	b = _mm_add_epi8(b, _mm_srli_si128(b, 4));
+	a = _mm_and_si128(a, _mm_set1_epi64(_mm_set_pi64x(0xff)));
+	b = _mm_and_si128(b, _mm_set1_epi64(_mm_set_pi64x(0xff)));
+	std::cerr << " a = " << a << std::endl;
+	std::cerr << " b = " << b << std::endl;
+	
+	// Store the byte-counts
+	union {
+		m128 vector[2];
+		uint64 popcounts[4];
+	};
+	vector[0] = a;
+	vector[1] = b;
+	
+	std::cerr << popcounts[0] << " " << popcounts[1] << " " << popcounts[2] << " " << popcounts[3] << std::endl;
+	
+	// Calculate the popcount
+	int popcount = popcounts[0] + popcounts[1] + popcounts[2] + popcounts[3];
+	
+	std::cerr << "popcount " << popcount << std::endl;
+	
+	// Calculate a random point
+	int pointIndex = rand() % popcount;
+	
+	// Fetch that point
+	union {
+		m128 bits128[2];
+		uint64 bits64[4];
+	};
+	bits128[0] = bits[0];
+	bits128[1] = bits[1];
+	if(pointIndex < popcounts[0])
+		return BoardPoint(indexOfNthBit(bits64[0], pointIndex));
+	pointIndex -= popcounts[0];
+	if(pointIndex < popcounts[1])
+		return BoardPoint(indexOfNthBit(bits64[1], pointIndex) + 64);
+	pointIndex -= popcounts[1];
+	if(pointIndex < popcounts[2])
+		return BoardPoint(indexOfNthBit(bits64[2], pointIndex) + 128);
+	pointIndex -= popcounts[2];
+	if(pointIndex < popcounts[3])
+		return BoardPoint(indexOfNthBit(bits64[3], pointIndex) + 192);
 	return BoardPoint();
-	/*
-	int numPoints = popcount();
-	if(numPoints == 0)
-		return BoardPoint();
-	int index = rand() % numPoints;
-	int planeCount = __builtin_popcountl(bits[0]);
-	if(index < planeCount)
-		return planePoint(0, indexOfNthBit(bits[0], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[1]);
-	if(index < planeCount)
-		return planePoint(1, indexOfNthBit(bits[1], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[2]);
-	if(index < planeCount)
-		return planePoint(2, indexOfNthBit(bits[2], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[3]);
-	if(index < planeCount)
-		return planePoint(3, indexOfNthBit(bits[3], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[4]);
-	if(index < planeCount)
-		return planePoint(4, indexOfNthBit(bits[4], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[5]);
-	if(index < planeCount)
-		return planePoint(5, indexOfNthBit(bits[5], index));
-	index -= planeCount;
-	planeCount = __builtin_popcountl(bits[6]);
-	if(index < planeCount)
-		return planePoint(6, indexOfNthBit(bits[6], index));
-	index -= planeCount;
-	return planePoint(7, indexOfNthBit(bits[7], index));
-	*/
 }
 
 inline BoardPoint BoardMask::planePoint(int plane, int index)
@@ -1041,18 +1091,16 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
-	BoardMask bm;
-	std::cerr << bm << std::endl;
-	std::cerr << bm << std::endl;
-	for(int i = 0; i < 15; ++i)
-		bm.set(BoardPoint(i, i));
-	std::cerr << bm << std::endl;
-	std::cerr << bm.popcount() << std::endl;
-	bm.expand();
-	std::cerr << bm << std::endl;
-	bm.expand();
-	std::cerr << bm << std::endl;
-	std::cerr << bm.popcount() << std::endl;
+	BoardMask bmr;
+	std::cerr << bmr << std::endl;
+	for(int i = 0; i < 15; ++i) {
+		bmr.set(BoardPoint(rand() % 15, rand() % 15));
+	}
+	std::cerr << bmr << std::endl;
+	while(!bmr.isEmpty()) {
+		bmr -= BoardMask(bmr.randomPoint());
+		std::cerr << bmr << std::endl;
+	}
 	return 0;
 	
 	Game g;
