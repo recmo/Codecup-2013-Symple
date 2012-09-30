@@ -6,19 +6,16 @@
 #include <sstream>
 #include <limits>
 #include <unistd.h>
+#pragma GCC target ("sse4.1")
+#define ssefunc __attribute__ ((__target__ ("sse4.1")))
 #define __MMX__
 #define __SSE__
 #define __SSE2__
 #define __SSE3__
 #define __SSSE3__
 #define __SSE4_1__
-#pragma GCC target ("sse4.1")
 #include <smmintrin.h>
-#include <tmmintrin.h>
-#include <pmmintrin.h>
 #include <emmintrin.h>
-#include <xmmintrin.h>
-#include <mmintrin.h>
 typedef __m128i m128;
 typedef uint8_t uint8;
 typedef uint16_t uint16;
@@ -49,19 +46,6 @@ int sgn(T val)
 	return (T(0) < val) - (val < T(0));
 }
 
-/*
-int indexOfNthBit(uint64 bits, int n)
-{
-	for(;;) {
-		int index = __builtin_ctzll(bits);
-		if(n == 0)
-			return index;
-		bits ^= 1ULL << index;
-		--n;
-	}
-}
-*/
-
 int countLeadingZeros(uint64 n)
 {
 	/// @see http://chessprogramming.wikispaces.com/BitScan#DeBruijnMultiplation
@@ -81,26 +65,14 @@ int countLeadingZeros(uint64 n)
 
 int indexOfNthBit(uint64 bits, int n)
 {
-	// std::cerr << std::hex << bits << std::dec << " " << n << std::endl;
 	while(n) {
 		bits &= bits - 1;
 		--n;
 	}
-	// std::cerr << countLeadingZeros(bits) << std::endl;
 	return countLeadingZeros(bits);
 }
 
-int indexOfNthBit(uint32 bits, int n)
-{
-	for(;;) {
-		int index = __builtin_ctzl(bits);
-		if(n == 0)
-			return index;
-		bits ^= 1ULL << index;
-		--n;
-	}
-}
-
+std::ostream& operator<<(std::ostream& out, const m128 in) ssefunc;
 std::ostream& operator<<(std::ostream& out, const m128 in)
 {
 	union{
@@ -161,37 +133,36 @@ std::istream& operator>>(std::istream& in, BoardPoint& point)
 	return in;
 }
 
-
 //
 //   B O A R D   M A S K
 //
 
 class BoardMask {
 public:
-	BoardMask();
-	BoardMask(const BoardMask& other);
-	BoardMask(const BoardPoint& point);
+	BoardMask() ssefunc;
+	BoardMask(const BoardMask& other) ssefunc;
+	BoardMask(const BoardPoint& point) ssefunc;
 	~BoardMask() { }
-	BoardMask& operator=(const BoardMask& other);
-	bool operator==(const BoardMask& other) const;
+	BoardMask& operator=(const BoardMask& other) ssefunc;
+	bool operator==(const BoardMask& other) const ssefunc;
 	bool operator!=(const BoardMask& other) const { return !operator==(other); }
-	BoardMask& operator&=(const BoardMask& other);
-	BoardMask& operator|=(const BoardMask& other);
-	BoardMask& operator-=(const BoardMask& other);
-	BoardMask operator&(const BoardMask& other) const;
-	BoardMask operator|(const BoardMask& other) const;
-	BoardMask operator-(const BoardMask& other) const;
-	BoardMask operator~() const;
-	BoardMask expanded() const;
+	BoardMask& operator&=(const BoardMask& other) ssefunc;
+	BoardMask& operator|=(const BoardMask& other) ssefunc;
+	BoardMask& operator-=(const BoardMask& other) ssefunc;
+	BoardMask operator&(const BoardMask& other) const ssefunc;
+	BoardMask operator|(const BoardMask& other) const ssefunc;
+	BoardMask operator-(const BoardMask& other) const ssefunc;
+	BoardMask operator~() const ssefunc;
+	BoardMask expanded() const ssefunc;
 	BoardMask& invert() { return operator=(operator~()); }
 	BoardMask& expand() { return operator=(expanded()); }
-	int popcount() const;
-	BoardMask& clear();
-	BoardMask& set(const BoardPoint& point);
-	bool isSet(const BoardPoint& point) const;
-	bool isEmpty() const;
-	BoardPoint firstPoint() const;
-	BoardPoint randomPoint() const;
+	int popcount() const ssefunc;
+	BoardMask& clear() ssefunc;
+	BoardMask& set(const BoardPoint& point) ssefunc;
+	bool isSet(const BoardPoint& point) const ssefunc;
+	bool isEmpty() const ssefunc;
+	BoardPoint firstPoint() const ssefunc;
+	BoardPoint randomPoint() const ssefunc;
 	
 protected:
 	friend class PointIterator;
@@ -200,7 +171,7 @@ protected:
 	static BoardPoint planePoint(int plane, int index);
 };
 
-std::ostream& operator<<(std::ostream& out, const BoardMask& boardMask);
+std::ostream& operator<<(std::ostream& out, const BoardMask& boardMask) ssefunc;
 
 inline BoardMask::BoardMask()
 {
@@ -375,11 +346,11 @@ inline BoardPoint BoardMask::firstPoint() const
 	if(ints[0])
 		return BoardPoint(countLeadingZeros(ints[0]));
 	if(ints[1])
-		return BoardPoint(countLeadingZeros(ints[1]));
+		return BoardPoint(countLeadingZeros(ints[1]) + 64);
 	if(ints[2])
-		return BoardPoint(countLeadingZeros(ints[2]));
+		return BoardPoint(countLeadingZeros(ints[2]) + 128);
 	if(ints[3])
-		return BoardPoint(countLeadingZeros(ints[3]));
+		return BoardPoint(countLeadingZeros(ints[3]) + 192);
 	return BoardPoint();
 }
 
@@ -399,9 +370,6 @@ inline BoardPoint BoardMask::randomPoint() const
 	a = _mm_and_si128(_mm_add_epi8(a, _mm_srli_epi64(a, 4)), mask2);
 	b = _mm_and_si128(_mm_add_epi8(b, _mm_srli_epi64(b, 4)), mask2);
 	
-	std::cerr << " a = " << a << std::endl;
-	std::cerr << " b = " << b << std::endl;
-	
 	// Sum the byte-counts to quadword-counts
 	a = _mm_add_epi8(a, _mm_srli_si128(a, 1));
 	b = _mm_add_epi8(b, _mm_srli_si128(b, 1));
@@ -411,8 +379,6 @@ inline BoardPoint BoardMask::randomPoint() const
 	b = _mm_add_epi8(b, _mm_srli_si128(b, 4));
 	a = _mm_and_si128(a, _mm_set1_epi64(_mm_set_pi64x(0xff)));
 	b = _mm_and_si128(b, _mm_set1_epi64(_mm_set_pi64x(0xff)));
-	std::cerr << " a = " << a << std::endl;
-	std::cerr << " b = " << b << std::endl;
 	
 	// Store the byte-counts
 	union {
@@ -422,12 +388,8 @@ inline BoardPoint BoardMask::randomPoint() const
 	vector[0] = a;
 	vector[1] = b;
 	
-	std::cerr << popcounts[0] << " " << popcounts[1] << " " << popcounts[2] << " " << popcounts[3] << std::endl;
-	
 	// Calculate the popcount
 	int popcount = popcounts[0] + popcounts[1] + popcounts[2] + popcounts[3];
-	
-	std::cerr << "popcount " << popcount << std::endl;
 	
 	// Calculate a random point
 	int pointIndex = rand() % popcount;
@@ -463,10 +425,10 @@ inline BoardPoint BoardMask::planePoint(int plane, int index)
 std::ostream& operator<<(std::ostream& out, const BoardMask& board)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
-	for(int y = 15; y >= 0; --y) {
+	for(int y = 14; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
-		for(int x = 0; x < 16; ++x)
+		for(int x = 0; x < 15; ++x)
 			out << ((board.isSet(BoardPoint(x, y))) ? "0" : "·");
 		out << " ";
 		out.width(2);
@@ -477,7 +439,6 @@ std::ostream& operator<<(std::ostream& out, const BoardMask& board)
 	return out;
 }
 
-
 //
 //   P O I N T   I T E R A T O R
 //
@@ -485,43 +446,51 @@ std::ostream& operator<<(std::ostream& out, const BoardMask& board)
 class PointIterator
 {
 public:
-	PointIterator(const BoardMask& boardMask);
+	PointIterator(const BoardMask& boardMask) ssefunc;
 	~PointIterator() { }
 	
-	bool next();
+	bool next() ssefunc;
 	BoardPoint point() const { return _point; }
 	
 protected:
 	const BoardMask& _boardMask;
 	BoardPoint _point;
 	int _plane;
-	m128 _bits;
+	uint64 _bits;
 };
 
-PointIterator::PointIterator(const BoardMask& boardMask)
+inline PointIterator::PointIterator(const BoardMask& boardMask)
 : _boardMask(boardMask)
 , _point()
 , _plane(0)
-, _bits(boardMask.bits[0])
+, _bits(_mm_cvtsi128_si64(_boardMask.bits[0]))
 {
 }
 
-bool PointIterator::next()
+inline bool PointIterator::next()
 {
-	/// TODO
-	return false;
-	/*
 	while(_bits == 0) {
-		if(_plane >= 7)
+		switch(_plane) {
+		case 0:
+			_bits = _mm_cvtsi128_si64(_mm_srli_si128(_boardMask.bits[0], 8));
+			_plane = 1;
+			break;
+		case 1:
+			_bits = _mm_cvtsi128_si64(_boardMask.bits[1]);
+			_plane = 2;
+			break;
+		case 2:
+			_bits = _mm_cvtsi128_si64(_mm_srli_si128(_boardMask.bits[1], 8));
+			_plane = 3;
+			break;
+		default:
 			return false;
-		++_plane;
-		_bits = _boardMask.bits[_plane];
+		}
 	}
 	int index = __builtin_ctzl(_bits);
+	_point = BoardPoint(index + 64 * _plane);
 	_bits ^= 1UL << index;
-	_point = BoardMask::planePoint(_plane, index);
 	return true;
-	*/
 }
 
 //
@@ -690,7 +659,6 @@ std::ostream& operator<<(std::ostream& out, const Board& board)
 	return out;
 }
 
-
 //
 //   T U R N   I T E R A T O R
 //
@@ -746,10 +714,6 @@ void TurnIterator::choose(const BoardPoint& point)
 	// black has the option of an additional exploration move
 	/// TODO
 }
-
-
-
-
 
 //
 //  T A B L E   E N T R Y
@@ -950,10 +914,8 @@ sint32 ScoreHeuristic::evaluate()
 }
 
 //
+//  G A M E
 //
-//
-
-
 
 class Game {
 public:
@@ -1090,18 +1052,6 @@ int main(int argc, char* argv[])
 	//std::cerr << "Table size: " << table.size() << std::endl;
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
-	
-	BoardMask bmr;
-	std::cerr << bmr << std::endl;
-	for(int i = 0; i < 15; ++i) {
-		bmr.set(BoardPoint(rand() % 15, rand() % 15));
-	}
-	std::cerr << bmr << std::endl;
-	while(!bmr.isEmpty()) {
-		bmr -= BoardMask(bmr.randomPoint());
-		std::cerr << bmr << std::endl;
-	}
-	return 0;
 	
 	Game g;
 	g.play();
