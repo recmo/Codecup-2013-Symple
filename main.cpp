@@ -44,20 +44,31 @@ int sgn(T val)
 	return (T(0) < val) - (val < T(0));
 }
 
-std::ostream& operator<<(std::ostream& out, m128 in) ssefunc;
-std::ostream& operator<<(std::ostream& out, m128 in)
+void print128(std::ostream& out, uint8* data)
 {
 	out.fill('0');
 	out << std::hex;
 	for(int i = 15; i >= 0; --i) {
 		out.width(2);
-		out << int(_mm_cvtsi128_si32(in) & 0xff);
-		in = _mm_srli_si128(in, 1);
+		out << int(data[i]);
 	}
 	out.fill(' ');
 	out << std::dec;
+}
+
+std::ostream& operator<<(std::ostream& out, m128 in) ssefunc;
+inline std::ostream& operator<<(std::ostream& out, m128 in)
+{
+	// Avoid http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35414
+	uint8 data[16] __attribute__ ((aligned (16)));
+	_mm_store_si128((m128*)(data), in);
+	print128(out, data);
 	return out;
 }
+
+class BoardPoint;
+class BoardMask;
+class Board;
 
 //
 //   B O A R D   P O I N T
@@ -133,6 +144,8 @@ public:
 	
 protected:
 	friend class PointIterator;
+	friend std::ostream& operator<<(std::ostream& out, const BoardMask& boardMask) ssefunc;
+	friend std::ostream& operator<<(std::ostream& out, const Board& board);
 	m128 bits[2];
 	
 	static BoardPoint planePoint(int plane, int index);
@@ -332,20 +345,29 @@ inline BoardPoint BoardMask::firstPoint() const
 	return BoardPoint();
 }
 
-std::ostream& operator<<(std::ostream& out, const BoardMask& board)
+void printMask(std::ostream& out, const uint16* data)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
 	for(int y = 14; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
 		for(int x = 0; x < 15; ++x)
-			out << ((board.isSet(BoardPoint(x, y))) ? "0" : "·");
+			out << ((data[y] & (1 << x)) ? "0" : ".");
 		out << " ";
 		out.width(2);
 		out << y + 1;
 		out << std::endl;
 	}
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
+}
+
+inline std::ostream& operator<<(std::ostream& out, const BoardMask& in)
+{
+	// Avoid http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35414
+	uint16 data[16] __attribute__ ((aligned (16)));
+	_mm_store_si128((m128*)(data), in.bits[0]);
+	_mm_store_si128((m128*)(data + 8), in.bits[0]);
+	printMask(out, data);
 	return out;
 }
 
@@ -513,6 +535,7 @@ public:
 	void blackMove(const BoardPoint& move);
 	
 protected:
+	friend std::ostream& operator<<(std::ostream& out, const Board& board);
 	// const static uint64 zobristWhite[15*15];
 	// const static uint64 zobristBlack[15*15];
 	BoardMask _white;
@@ -522,7 +545,7 @@ protected:
 	// uint64 _hash;
 };
 
-std::ostream& operator<<(std::ostream& out, const Board& board);
+std::ostream& operator<<(std::ostream& out, const Board& board) ssefunc;
 
 Board::Board()
 : _white()
@@ -561,20 +584,19 @@ void Board::recalculateHash()
 	*/
 }
 
-std::ostream& operator<<(std::ostream& out, const Board& board)
+void printBoard(std::ostream& out, uint16* white, uint16* black)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
 	for(int y = 14; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
 		for(int x = 0; x < 15; ++x) {
-			BoardPoint p(x, y);
-			if(board.black().isSet(p))
-				out << "B"; // "●";
-			else if(board.white().isSet(p))
-				out << "W"; // "○";
+			if(black[y] & (1 << x))
+				out << "B";
+			else if(white[y] & (1 << x))
+				out << "W";
 			else
-				out << "·";
+				out << ".";
 		}
 		out << " ";
 		out.width(2);
@@ -582,6 +604,17 @@ std::ostream& operator<<(std::ostream& out, const Board& board)
 		out << std::endl;
 	}
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
+}
+
+inline std::ostream& operator<<(std::ostream& out, const Board& board)
+{
+	uint16 white[16];
+	uint16 black[16];
+	_mm_store_si128((m128*)(white), board._white.bits[0]);
+	_mm_store_si128((m128*)(white + 8), board._white.bits[1]);
+	_mm_store_si128((m128*)(black), board._black.bits[0]);
+	_mm_store_si128((m128*)(black + 8), board._black.bits[1]);
+	printBoard(out, white, black);
 	return out;
 }
 
