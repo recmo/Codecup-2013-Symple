@@ -211,54 +211,23 @@ BoardMask BoardMask::expanded() const
 
 BoardMask BoardMask::connected(const BoardMask& seed) const
 {
+	/// NOTE: This function is by far the bottleneck of the application
 	BoardMask r(seed);
 	BoardMask prev;
-	bool fixedPoint = false;
 	do {
 		prev = r;
-		
-		// Addition to connect to the right
-		/// @see http://chessprogramming.wikispaces.com/Fill+by+Subtraction ?
-		// 0101111111010 v  (mask)
-		// 0000010100000 w  (seed)
-		// 0110010011010 v + w
-		// 1001101100101 ~(v + w)
-		// 0001101100000 v & ~(v + w)
-		// 0001111100000 w | v & ~(v + w)
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(r.bits[0], bits[0]), bits[0]));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(r.bits[1], bits[1]), bits[1]));
-		
-		// Kogge-Stone filler in upwards direction
-		/// @see http://chessprogramming.wikispaces.com/Kogge-Stone+Algorithm
-		m128 p0 = bits[0];
-		m128 p1 = bits[1];
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 2)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 2)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 14)));
-		p0 = _mm_and_si128(p0, _mm_slli_si128(p0, 2));
-		p1 = _mm_and_si128(p1,  _mm_or_si128(_mm_srli_si128(p0, 14), _mm_slli_si128(p1, 2)));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 4)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 4)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 12)));
-		p0 = _mm_and_si128(p0, _mm_slli_si128(p0, 4));
-		p1 = _mm_and_si128(p1,  _mm_or_si128(_mm_srli_si128(p0, 12), _mm_slli_si128(p1, 4)));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 8)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 8)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 8)));
-		p1 = _mm_and_si128(p0,  _mm_or_si128(_mm_srli_si128(p0, 8), _mm_slli_si128(p1, 8)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, r.bits[0]));
-		
-		// Simple or-and-mask in left direction
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_epi16(r.bits[0], 1)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(bits[1], _mm_srli_epi16(r.bits[1], 1)));
-		
-		// Simple or-and-mask in downward direction
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_si128(r.bits[0], 2)));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(bits[1], _mm_srli_si128(r.bits[1], 2)));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_si128(r.bits[1], 14)));
-		
-		/// TODO: Fix bug
-		
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(prev.bits[0], bits[0]), bits[0]));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_srli_epi16(prev.bits[0], 1));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_slli_si128(prev.bits[0], 2));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_srli_si128(prev.bits[0], 2));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_slli_si128(prev.bits[1], 14));
+		r.bits[0] = _mm_and_si128(r.bits[0], bits[0]);
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(prev.bits[1], bits[1]), bits[1]));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_si128(prev.bits[0], 14));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_epi16(prev.bits[1], 1));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_slli_si128(prev.bits[1], 2));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_si128(prev.bits[1], 2));
+		r.bits[1] = _mm_and_si128(r.bits[1], bits[1]);
 	} while(r != prev);
 	return r;
 }
@@ -582,17 +551,8 @@ bool GroupIterator::next()
 	if(_remaining.isEmpty())
 		return false;
 	
-	// Seed the new group with a single point
-	_group = BoardMask(_remaining.firstPoint());
-	
-	BoardMask old;
-	do {
-		old = _group;
-		_group.expand();
-	} while(old == _group);
-	
-	// Connect to the full group
-	//_group = _remaining.connected(_group);
+	// Find the next group
+	_group = _remaining.connected(BoardMask(_remaining.firstPoint()));
 	
 	// Subtract group from remaining
 	_remaining -= _group;
@@ -974,6 +934,73 @@ sint32 ScoreHeuristic::evaluate()
 }
 
 //
+// T R A I N
+//
+
+class Train {
+public:
+	Train() ssefunc;
+	~Train() { }
+	
+	void play() ssefunc;
+	
+protected:
+	Board _board;
+};
+
+Train::Train()
+: _board()
+{
+}
+
+void Train::play()
+{
+	bool whitesTurn = true;
+	while(!_board.gameOver()) {
+		TurnIterator ti(
+			(whitesTurn) ? _board.white() : _board.black(),
+			(whitesTurn) ? _board.black() : _board.white());
+		std::vector<BoardPoint> moves;
+		while(!ti.done()) {
+			BoardMask validMoves = ti.moves();
+			BoardMask goodMoves = validMoves;
+			sint32 goodScore = -0x7FFFFFFF;
+			PointIterator pi(validMoves);
+			while(pi.next()) {
+				BoardPoint move = pi.point();
+				Board afterMove = _board;
+				if(whitesTurn)
+					afterMove.whiteMove(move);
+				else
+					afterMove.blackMove(move);
+				ScoreHeuristic sc(afterMove);
+				sint32 moveScore = sc.evaluate();
+				if(!whitesTurn)
+					moveScore = -moveScore;
+				if(moveScore > goodScore) {
+					goodScore = moveScore;
+					goodMoves = BoardMask();
+					goodMoves.set(move);
+				} else if (moveScore == goodScore) {
+					goodMoves.set(move);
+				}
+			}
+			BoardPoint move = PointIterator::randomPoint(goodMoves);
+			ti.choose(move);
+			moves.push_back(move);
+		}
+		for(int i = 0; i < moves.size(); ++i) {
+			if(whitesTurn)
+				_board.whiteMove(moves[i]);
+			else
+				_board.blackMove(moves[i]);
+		}
+		
+		whitesTurn = !whitesTurn;
+	}
+}
+
+//
 //  G A M E
 //
 
@@ -1116,13 +1143,22 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
+	/*
 	BoardMask bm;
-	for(int i = 0; i < 6; ++i)
-		bm.set(BoardPoint(rand() % 15, rand() % 15));
-	bm.expand();
-	bm.expand();
-	for(int i = 0; i < 6; ++i)
-		bm.set(BoardPoint(rand() % 15, rand() % 15));
+	bm.set(BoardPoint(1, 0));
+	bm.set(BoardPoint(1, 1));
+	bm.set(BoardPoint(1, 2));
+	bm.set(BoardPoint(1, 3));
+	bm.set(BoardPoint(1, 4));
+	bm.set(BoardPoint(1, 5));
+	bm.set(BoardPoint(1, 6));
+	bm.set(BoardPoint(1, 7));
+	bm.set(BoardPoint(1, 8));
+	bm.set(BoardPoint(1, 9));
+	bm.set(BoardPoint(1, 10));
+	bm.set(BoardPoint(1, 11));
+	bm.set(BoardPoint(1, 12));
+	bm.set(BoardPoint(1, 13));
 	BoardMask seed(bm.firstPoint());
 	
 	std::cerr << bm << std::endl;
@@ -1133,10 +1169,15 @@ int main(int argc, char* argv[])
 	std::cerr << group << std::endl;
 	
 	return 0;
+	*/
 	
+	for(int i = 0; i < 300; ++i) {
+		Train t;
+		t.play();
+	}
 	
 	Game g;
-	g.play();
+	//g.play();
 	
 	std::cerr << "Exit" << std::endl;
 	return 0;
