@@ -232,7 +232,7 @@ BoardMask BoardMask::connected(const BoardMask& seed) const
 			r.rotate();
 			m.rotate();
 		}
-		std::cerr << r << std::endl;
+		// std::cerr << r << std::endl;
 	} while(r != prev);
 	return r;
 }
@@ -244,21 +244,51 @@ BoardMask BoardMask::rotated() const
 	m128 x = _mm_setzero_si128();
 	m128 y = _mm_setzero_si128();
 	
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 1), _mm_slli_epi16(b, 1))), 0);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 2), _mm_slli_epi16(b, 2))), 1);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 3), _mm_slli_epi16(b, 3))), 2);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 4), _mm_slli_epi16(b, 4))), 3);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 5), _mm_slli_epi16(b, 5))), 4);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 6), _mm_slli_epi16(b, 6))), 5);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 7), _mm_slli_epi16(b, 7))), 6);
-	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 8), _mm_slli_epi16(b, 8))), 7);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 9), _mm_slli_epi16(b, 9))), 0);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 10), _mm_slli_epi16(b, 10))), 1);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 11), _mm_slli_epi16(b, 11))), 2);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 12), _mm_slli_epi16(b, 12))), 3);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 13), _mm_slli_epi16(b, 13))), 4);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 14), _mm_slli_epi16(b, 14))), 5);
-	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 15), _mm_slli_epi16(b, 15))), 6);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 0);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 1);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 2);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 3);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 4);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 5);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 6);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 7);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 0);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 1);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 2);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 3);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 4);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 5);
+	a = _mm_slli_epi16(a, 1);
+	b = _mm_slli_epi16(b, 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 6);
 
 	BoardMask bm;
 	bm.bits[0] = x;
@@ -409,10 +439,10 @@ inline BoardPoint BoardMask::firstPoint() const
 void printMask(std::ostream& out, const uint16* data)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
-	for(int y = 15; y >= 0; --y) {
+	for(int y = 14; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
-		for(int x = 0; x < 16; ++x)
+		for(int x = 0; x < 14; ++x)
 			out << ((data[y] & (1 << x)) ? "0" : ".");
 		out << " ";
 		out.width(2);
@@ -555,13 +585,8 @@ bool GroupIterator::next()
 	// Seed the new group with a single point
 	_group = BoardMask(_remaining.firstPoint());
 	
-	// Expand and mask until fixed point
-	BoardMask old;
-	do {
-		old = _group;
-		_group.expand();
-		_group &= _remaining;
-	} while(_group != old);
+	// Connect to the full group
+	_group = _remaining.connected(_group);
 	
 	// Subtract group from remaining
 	_remaining -= _group;
@@ -1075,7 +1100,7 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
-	
+	/*
 	BoardMask bm;
 	for(int i = 0; i < 6; ++i)
 		bm.set(BoardPoint(rand() % 15, rand() % 15));
@@ -1094,6 +1119,8 @@ int main(int argc, char* argv[])
 	
 	
 	return 0;
+	*/
+	
 	
 	Game g;
 	g.play();
