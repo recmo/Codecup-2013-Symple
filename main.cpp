@@ -436,10 +436,10 @@ BoardPoint BoardMask::firstPoint() const
 void printMask(std::ostream& out, const uint16* data)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
-	for(int y = 15; y >= 0; --y) {
+	for(int y = 14; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
-		for(int x = 0; x < 16; ++x)
+		for(int x = 0; x < 15; ++x)
 			out << ((data[y] & (1 << x)) ? "0" : ".");
 		out << " ";
 		out.width(2);
@@ -1003,6 +1003,7 @@ void Train::play()
 					goodMoves.set(move);
 				}
 			}
+			std::cerr << goodMoves << std::endl;
 			BoardPoint move = PointIterator::randomPoint(goodMoves);
 			ti.choose(move);
 			moves.push_back(move);
@@ -1014,6 +1015,10 @@ void Train::play()
 				_board.blackMove(moves[i]);
 		}
 		
+		ScoreHeuristic sc(_board);
+		std::cerr << _board;
+		std::cerr << "Score = " << sc.evaluate() << std::endl;
+		std::cerr << std::endl;
 		whitesTurn = !whitesTurn;
 	}
 }
@@ -1161,41 +1166,17 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
-	/*
-	BoardMask bm;
-	bm.set(BoardPoint(1, 0));
-	bm.set(BoardPoint(1, 1));
-	bm.set(BoardPoint(1, 2));
-	bm.set(BoardPoint(1, 3));
-	bm.set(BoardPoint(1, 4));
-	bm.set(BoardPoint(1, 5));
-	bm.set(BoardPoint(1, 6));
-	bm.set(BoardPoint(1, 7));
-	bm.set(BoardPoint(1, 8));
-	bm.set(BoardPoint(1, 9));
-	bm.set(BoardPoint(1, 10));
-	bm.set(BoardPoint(1, 11));
-	bm.set(BoardPoint(1, 12));
-	bm.set(BoardPoint(1, 13));
-	BoardMask seed(bm.firstPoint());
-	
-	std::cerr << bm << std::endl;
-	std::cerr << seed << std::endl;
-	
-	BoardMask group = bm.connected(seed);
-	
-	std::cerr << group << std::endl;
-	
+	Train t;
+	t.play();
 	return 0;
-	*/
 	
 	for(int i = 0; i < 300; ++i) {
 		Train t;
-		t.play();
+		// t.play();
 	}
 	
 	Game g;
-	//g.play();
+	g.play();
 	
 	std::cerr << "Exit" << std::endl;
 	return 0;
