@@ -209,27 +209,45 @@ BoardMask BoardMask::expanded() const
 	return result;
 }
 
+/// NOTE: This function is by far the bottleneck of the application
 BoardMask BoardMask::connected(const BoardMask& seed) const
 {
-	/// NOTE: This function is by far the bottleneck of the application
-	BoardMask r(seed);
-	BoardMask prev;
+	// Unpack to registers
+	m128 s0 = seed.bits[0];
+	m128 s1 = seed.bits[1];
+	m128 m0 = bits[0];
+	m128 m1 = bits[1];
+	m128 p0;
+	m128 p1;
+	
+	// Loop until no more connections
 	do {
-		prev = r;
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(prev.bits[0], bits[0]), bits[0]));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_srli_epi16(prev.bits[0], 1));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_slli_si128(prev.bits[0], 2));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_srli_si128(prev.bits[0], 2));
-		r.bits[0] = _mm_or_si128(r.bits[0], _mm_slli_si128(prev.bits[1], 14));
-		r.bits[0] = _mm_and_si128(r.bits[0], bits[0]);
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(prev.bits[1], bits[1]), bits[1]));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_si128(prev.bits[0], 14));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_epi16(prev.bits[1], 1));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_slli_si128(prev.bits[1], 2));
-		r.bits[1] = _mm_or_si128(r.bits[1], _mm_srli_si128(prev.bits[1], 2));
-		r.bits[1] = _mm_and_si128(r.bits[1], bits[1]);
-	} while(r != prev);
-	return r;
+		// Fully extend in the right direction
+		s0 = _mm_or_si128(s0, _mm_andnot_si128(_mm_add_epi16(s0, m0), m0));
+		s1 = _mm_or_si128(s1, _mm_andnot_si128(_mm_add_epi16(s1, m1), m1));
+		
+		// Expansion round in other directions, with fixed-point check
+		p0 = s0;
+		p1 = s1;
+		s0 = _mm_or_si128(s0, _mm_srli_epi16(p0, 1));
+		s1 = _mm_or_si128(s1, _mm_srli_epi16(p1, 1));
+		s0 = _mm_or_si128(s0, _mm_slli_si128(p0, 2));
+		s1 = _mm_or_si128(s1, _mm_slli_si128(p1, 2));
+		s0 = _mm_or_si128(s0, _mm_srli_si128(p0, 2));
+		s1 = _mm_or_si128(s1, _mm_srli_si128(p1, 2));
+		s0 = _mm_or_si128(s0, _mm_slli_si128(p1, 14));
+		s1 = _mm_or_si128(s1, _mm_srli_si128(p0, 14));
+		s0 = _mm_and_si128(s0, m0);
+		s1 = _mm_and_si128(s1, m1);
+		
+		// Compare s and p
+	} while(_mm_movemask_epi8(_mm_and_si128(_mm_cmpeq_epi8(p0, s0), _mm_cmpeq_epi8(p1, s1))) != 0xffff);
+	
+	// Pack into boardmask
+	BoardMask result;
+	result.bits[0] = s0;
+	result.bits[1] = s1;
+	return result;
 }
 
 BoardMask BoardMask::rotated() const
