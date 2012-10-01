@@ -7,6 +7,7 @@
 #include <limits>
 #include <unistd.h>
 #define ssefunc __attribute__ ((__target__ ("sse4.1")))
+#define always_inline __attribute__ ((always_inline))
 #pragma GCC target ("sse4.1")
 #define __MMX__
 #define __SSE__
@@ -118,31 +119,31 @@ std::istream& operator>>(std::istream& in, BoardPoint& point)
 
 class BoardMask {
 public:
-	BoardMask() ssefunc;
-	BoardMask(const BoardMask& other) ssefunc;
-	BoardMask(const BoardPoint& point) ssefunc;
-	~BoardMask() { }
-	BoardMask& operator=(const BoardMask& other) ssefunc;
-	bool operator==(const BoardMask& other) const ssefunc;
-	bool operator!=(const BoardMask& other) const { return !operator==(other); }
-	BoardMask& operator&=(const BoardMask& other) ssefunc;
-	BoardMask& operator|=(const BoardMask& other) ssefunc;
-	BoardMask& operator-=(const BoardMask& other) ssefunc;
-	BoardMask operator&(const BoardMask& other) const ssefunc;
-	BoardMask operator|(const BoardMask& other) const ssefunc;
-	BoardMask operator-(const BoardMask& other) const ssefunc;
-	BoardMask operator~() const ssefunc;
+	BoardMask() ssefunc always_inline;
+	BoardMask(const BoardMask& other) ssefunc always_inline;
+	BoardMask(const BoardPoint& point) ssefunc always_inline;
+	~BoardMask() ssefunc always_inline { }
+	BoardMask& operator=(const BoardMask& other) ssefunc always_inline;
+	bool operator==(const BoardMask& other) const ssefunc always_inline;
+	bool operator!=(const BoardMask& other) const ssefunc always_inline { return !operator==(other); }
+	BoardMask& operator&=(const BoardMask& other) ssefunc always_inline;
+	BoardMask& operator|=(const BoardMask& other) ssefunc always_inline;
+	BoardMask& operator-=(const BoardMask& other) ssefunc always_inline;
+	BoardMask operator&(const BoardMask& other) const ssefunc always_inline;
+	BoardMask operator|(const BoardMask& other) const ssefunc always_inline;
+	BoardMask operator-(const BoardMask& other) const ssefunc always_inline;
+	BoardMask operator~() const ssefunc always_inline;
 	BoardMask expanded() const ssefunc;
 	BoardMask connected(const BoardMask& seed) const ssefunc;
 	BoardMask rotated() const ssefunc;
-	BoardMask& invert() { return operator=(operator~()); }
-	BoardMask& expand() { return operator=(expanded()); }
-	BoardMask& rotate() { return operator=(rotated()); }
+	BoardMask& invert() ssefunc always_inline { return operator=(operator~()); }
+	BoardMask& expand() ssefunc always_inline { return operator=(expanded()); }
+	BoardMask& rotate() ssefunc always_inline { return operator=(rotated()); }
 	int popcount() const ssefunc;
-	BoardMask& clear() ssefunc;
-	BoardMask& set(const BoardPoint& point) ssefunc;
-	bool isSet(const BoardPoint& point) const ssefunc;
-	bool isEmpty() const ssefunc;
+	BoardMask& clear() ssefunc always_inline;
+	BoardMask& set(const BoardPoint& point) ssefunc always_inline;
+	bool isSet(const BoardPoint& point) const ssefunc always_inline;
+	bool isEmpty() const ssefunc always_inline;
 	BoardPoint firstPoint() const ssefunc;
 	
 protected:
@@ -186,7 +187,7 @@ inline bool BoardMask::operator==(const BoardMask& other) const
 	return _mm_movemask_epi8(vectCompare) == 0xffff;
 }
 
-inline BoardMask BoardMask::expanded() const
+BoardMask BoardMask::expanded() const
 {
 	BoardMask result;
 	m128 mask = _mm_set1_epi16(0x7fff);
@@ -256,6 +257,8 @@ BoardMask BoardMask::connected(const BoardMask& seed) const
 		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(bits[1], _mm_srli_si128(r.bits[1], 2)));
 		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_si128(r.bits[1], 14)));
 		
+		/// TODO: Fix bug
+		
 	} while(r != prev);
 	return r;
 }
@@ -303,7 +306,7 @@ BoardMask BoardMask::rotated() const
 	return bm;
 }
 
-inline int BoardMask::popcount() const
+int BoardMask::popcount() const
 {
 	m128 a = bits[0];
 	m128 b = bits[1];
@@ -413,7 +416,7 @@ inline bool BoardMask::isEmpty() const
 	return operator==(BoardMask());
 }
 
-inline BoardPoint BoardMask::firstPoint() const
+BoardPoint BoardMask::firstPoint() const
 {
 	uint32 part;
 	part = _mm_cvtsi128_si32(bits[0]);
@@ -544,16 +547,15 @@ BoardPoint PointIterator::randomPoint(const BoardMask& boardMask)
 class GroupIterator
 {
 public:
-	static int count(const BoardMask& boardMask);
-	static std::vector<BoardMask> list(const BoardMask& boardMask);
+	static int count(const BoardMask& boardMask) ssefunc;
 	
-	GroupIterator(const BoardMask& boardMask) ssefunc;
-	~GroupIterator() { }
+	GroupIterator(const BoardMask& boardMask) ssefunc always_inline;
+	~GroupIterator() ssefunc always_inline { }
 	
-	bool hasNext() const { return !_remaining.isEmpty(); }
+	bool hasNext() const ssefunc always_inline { return !_remaining.isEmpty(); }
 	bool next() ssefunc;
 	
-	BoardMask group() const { return _group; } 
+	BoardMask group() const ssefunc always_inline { return _group; } 
 	
 protected:
 	BoardMask _remaining;
@@ -566,15 +568,6 @@ int GroupIterator::count(const BoardMask& boardMask)
 	GroupIterator gi(boardMask);
 	while(gi.next())
 		++result;
-	return result;
-}
-
-std::vector<BoardMask> GroupIterator::list(const BoardMask& boardMask)
-{
-	std::vector<BoardMask> result;
-	GroupIterator gi(boardMask);
-	while(gi.next())
-		result.push_back(gi.group());
 	return result;
 }
 
@@ -617,21 +610,22 @@ enum Colour {
 
 class Board {
 public:
-	Board();
-	~Board() { }
+	Board() ssefunc;
+	Board(const Board& board) ssefunc;
+	~Board() ssefunc { }
 	
-	const BoardMask& white() const { return _white; }
-	Board& white(const BoardMask& value) { _white = value; return *this; }
-	const BoardMask& black() const { return _black; }
-	Board& black(const BoardMask& value) { _black = value; return *this; }
+	const BoardMask& white() const ssefunc { return _white; }
+	Board& white(const BoardMask& value) ssefunc { _white = value; return *this; }
+	const BoardMask& black() const ssefunc { return _black; }
+	Board& black(const BoardMask& value) ssefunc { _black = value; return *this; }
 	// uint64 hash() const { return _hash; }
 	bool hasExpanded() const { return _hasExpanded; }
-	void recalculateHash();
+	void recalculateHash() ssefunc;
 	
-	bool gameOver() const { return (~(_white | _black)).isEmpty(); }
+	bool gameOver() const ssefunc { return (~(_white | _black)).isEmpty(); }
 	
-	void whiteMove(const BoardPoint& move);
-	void blackMove(const BoardPoint& move);
+	void whiteMove(const BoardPoint& move) ssefunc;
+	void blackMove(const BoardPoint& move) ssefunc;
 	
 protected:
 	friend std::ostream& operator<<(std::ostream& out, const Board& board);
@@ -653,6 +647,14 @@ Board::Board()
 // , _hash(0)
 {
 }
+
+Board::Board(const Board& board)
+: _white(board._white)
+, _black(board._black)
+, _hasExpanded(board._hasExpanded)
+{
+}
+
 
 void Board::whiteMove(const BoardPoint& move)
 {
@@ -725,10 +727,10 @@ class TurnIterator
 {
 public:
 	TurnIterator(const BoardMask& player, const BoardMask& opponent) ssefunc;
-	~TurnIterator() { }
+	~TurnIterator() ssefunc { }
 	
-	bool done() const { return _moves.isEmpty(); }
-	BoardMask moves() const { return _moves; }
+	bool done() const ssefunc { return _moves.isEmpty(); }
+	BoardMask moves() const ssefunc { return _moves; }
 	void choose(const BoardPoint& point) ssefunc;
 	
 protected:
@@ -896,10 +898,10 @@ void Table::put(const TableEntry& entry)
 
 class ScoreHeuristic {
 public:
-	ScoreHeuristic(const Board& board);
-	~ScoreHeuristic() {}
+	ScoreHeuristic(const Board& board) ssefunc;
+	~ScoreHeuristic() ssefunc {}
 	
-	sint32 evaluate();
+	sint32 evaluate() ssefunc;
 	
 protected:
 	const Board& _board;
@@ -977,17 +979,17 @@ sint32 ScoreHeuristic::evaluate()
 
 class Game {
 public:
-	Game();
-	~Game() { }
+	Game() ssefunc;
+	~Game() ssefunc { }
 	
-	void play();
+	void play() ssefunc;
 	
 protected:
 	Board _board;
 	bool _isWhite;
 	bool _isBlack;
-	std::string makeMoves();
-	void receiveMoves(const std::string& moves);
+	std::string makeMoves() ssefunc;
+	void receiveMoves(const std::string& moves) ssefunc;
 };
 
 Game::Game()
@@ -1099,6 +1101,7 @@ void Game::receiveMoves(const std::string& moves)
 //  M A I N
 //
 
+int main(int argc, char* argv[]) ssefunc;
 int main(int argc, char* argv[])
 {
 	srand(time(0));
