@@ -133,8 +133,11 @@ public:
 	BoardMask operator-(const BoardMask& other) const ssefunc;
 	BoardMask operator~() const ssefunc;
 	BoardMask expanded() const ssefunc;
+	BoardMask connected(const BoardMask& seed) const ssefunc;
+	BoardMask rotated() const ssefunc;
 	BoardMask& invert() { return operator=(operator~()); }
 	BoardMask& expand() { return operator=(expanded()); }
+	BoardMask& rotate() { return operator=(rotated()); }
 	int popcount() const ssefunc;
 	BoardMask& clear() ssefunc;
 	BoardMask& set(const BoardPoint& point) ssefunc;
@@ -203,6 +206,64 @@ inline BoardMask BoardMask::expanded() const
 	result.bits[1] = _mm_or_si128(result.bits[1], _mm_srli_si128(bits[1], 2));
 	result.bits[1] = _mm_and_si128(result.bits[1], mask);
 	return result;
+}
+
+BoardMask BoardMask::connected(const BoardMask& seed) const
+{
+	BoardMask m(*this);
+	BoardMask r(seed);
+	BoardMask prev;
+	bool fixedPoint = false;
+	do {
+		prev = r;
+		
+		for(int i = 0; i < 4; ++i) {
+			// Addition to connect to the left 
+			// 0101111111010 v  (mask)
+			// 0000010100000 w  (seed)
+			// 0110010011010 v + w
+			// 1001101100101 ~(v + w)
+			// 0001101100000 v & ~(v + w)
+			// 0001111100000 w | v & ~(v + w)
+			r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(r.bits[0], m.bits[0]), m.bits[0]));
+			r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(r.bits[1], m.bits[1]), m.bits[1]));
+			
+			// Rotate 90 degrees
+			r.rotate();
+			m.rotate();
+		}
+		std::cerr << r << std::endl;
+	} while(r != prev);
+	return r;
+}
+
+BoardMask BoardMask::rotated() const
+{
+	m128 a = bits[0];
+	m128 b = bits[1];
+	m128 x = _mm_setzero_si128();
+	m128 y = _mm_setzero_si128();
+	
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 1), _mm_slli_epi16(b, 1))), 0);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 2), _mm_slli_epi16(b, 2))), 1);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 3), _mm_slli_epi16(b, 3))), 2);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 4), _mm_slli_epi16(b, 4))), 3);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 5), _mm_slli_epi16(b, 5))), 4);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 6), _mm_slli_epi16(b, 6))), 5);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 7), _mm_slli_epi16(b, 7))), 6);
+	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 8), _mm_slli_epi16(b, 8))), 7);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 9), _mm_slli_epi16(b, 9))), 0);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 10), _mm_slli_epi16(b, 10))), 1);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 11), _mm_slli_epi16(b, 11))), 2);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 12), _mm_slli_epi16(b, 12))), 3);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 13), _mm_slli_epi16(b, 13))), 4);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 14), _mm_slli_epi16(b, 14))), 5);
+	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(_mm_slli_epi16(a, 15), _mm_slli_epi16(b, 15))), 6);
+
+	BoardMask bm;
+	bm.bits[0] = x;
+	bm.bits[1] = y;
+	return bm;
 }
 
 inline int BoardMask::popcount() const
@@ -348,10 +409,10 @@ inline BoardPoint BoardMask::firstPoint() const
 void printMask(std::ostream& out, const uint16* data)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
-	for(int y = 14; y >= 0; --y) {
+	for(int y = 15; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
-		for(int x = 0; x < 15; ++x)
+		for(int x = 0; x < 16; ++x)
 			out << ((data[y] & (1 << x)) ? "0" : ".");
 		out << " ";
 		out.width(2);
@@ -366,7 +427,7 @@ inline std::ostream& operator<<(std::ostream& out, const BoardMask& in)
 	// Avoid http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35414
 	uint16 data[16] __attribute__ ((aligned (16)));
 	_mm_store_si128((m128*)(data), in.bits[0]);
-	_mm_store_si128((m128*)(data + 8), in.bits[0]);
+	_mm_store_si128((m128*)(data + 8), in.bits[1]);
 	printMask(out, data);
 	return out;
 }
@@ -449,11 +510,11 @@ public:
 	static int count(const BoardMask& boardMask);
 	static std::vector<BoardMask> list(const BoardMask& boardMask);
 	
-	GroupIterator(const BoardMask& boardMask);
+	GroupIterator(const BoardMask& boardMask) ssefunc;
 	~GroupIterator() { }
 	
 	bool hasNext() const { return !_remaining.isEmpty(); }
-	bool next();
+	bool next() ssefunc;
 	
 	BoardMask group() const { return _group; } 
 	
@@ -608,8 +669,8 @@ void printBoard(std::ostream& out, uint16* white, uint16* black)
 
 inline std::ostream& operator<<(std::ostream& out, const Board& board)
 {
-	uint16 white[16];
-	uint16 black[16];
+	uint16 white[16] __attribute__ ((aligned (16)));
+	uint16 black[16] __attribute__ ((aligned (16)));
 	_mm_store_si128((m128*)(white), board._white.bits[0]);
 	_mm_store_si128((m128*)(white + 8), board._white.bits[1]);
 	_mm_store_si128((m128*)(black), board._black.bits[0]);
@@ -625,12 +686,12 @@ inline std::ostream& operator<<(std::ostream& out, const Board& board)
 class TurnIterator
 {
 public:
-	TurnIterator(const BoardMask& player, const BoardMask& opponent);
+	TurnIterator(const BoardMask& player, const BoardMask& opponent) ssefunc;
 	~TurnIterator() { }
 	
 	bool done() const { return _moves.isEmpty(); }
 	BoardMask moves() const { return _moves; }
-	void choose(const BoardPoint& point);
+	void choose(const BoardPoint& point) ssefunc;
 	
 protected:
 	const BoardMask& _player;
@@ -1013,6 +1074,26 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(void*): " << sizeof(void*) << std::endl;
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
+	
+	
+	BoardMask bm;
+	for(int i = 0; i < 6; ++i)
+		bm.set(BoardPoint(rand() % 15, rand() % 15));
+	bm.expand();
+	bm.expand();
+	for(int i = 0; i < 6; ++i)
+		bm.set(BoardPoint(rand() % 15, rand() % 15));
+	BoardMask seed(bm.firstPoint());
+	
+	std::cerr << bm << std::endl;
+	std::cerr << seed << std::endl;
+	
+	BoardMask group = bm.connected(seed);
+	
+	std::cerr << group << std::endl;
+	
+	
+	return 0;
 	
 	Game g;
 	g.play();
