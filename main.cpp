@@ -210,86 +210,93 @@ inline BoardMask BoardMask::expanded() const
 
 BoardMask BoardMask::connected(const BoardMask& seed) const
 {
-	BoardMask m(*this);
 	BoardMask r(seed);
 	BoardMask prev;
 	bool fixedPoint = false;
 	do {
 		prev = r;
 		
-		for(int i = 0; i < 4; ++i) {
-			// Addition to connect to the left 
-			// 0101111111010 v  (mask)
-			// 0000010100000 w  (seed)
-			// 0110010011010 v + w
-			// 1001101100101 ~(v + w)
-			// 0001101100000 v & ~(v + w)
-			// 0001111100000 w | v & ~(v + w)
-			r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(r.bits[0], m.bits[0]), m.bits[0]));
-			r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(r.bits[1], m.bits[1]), m.bits[1]));
-			
-			// Rotate 90 degrees
-			r.rotate();
-			m.rotate();
-		}
-		// std::cerr << r << std::endl;
+		// Addition to connect to the right
+		/// @see http://chessprogramming.wikispaces.com/Fill+by+Subtraction ?
+		// 0101111111010 v  (mask)
+		// 0000010100000 w  (seed)
+		// 0110010011010 v + w
+		// 1001101100101 ~(v + w)
+		// 0001101100000 v & ~(v + w)
+		// 0001111100000 w | v & ~(v + w)
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_andnot_si128(_mm_add_epi16(r.bits[0], bits[0]), bits[0]));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_andnot_si128(_mm_add_epi16(r.bits[1], bits[1]), bits[1]));
+		
+		// Kogge-Stone filler in upwards direction
+		/// @see http://chessprogramming.wikispaces.com/Kogge-Stone+Algorithm
+		m128 p0 = bits[0];
+		m128 p1 = bits[1];
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 2)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 2)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 14)));
+		p0 = _mm_and_si128(p0, _mm_slli_si128(p0, 2));
+		p1 = _mm_and_si128(p1,  _mm_or_si128(_mm_srli_si128(p0, 14), _mm_slli_si128(p1, 2)));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 4)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 4)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 12)));
+		p0 = _mm_and_si128(p0, _mm_slli_si128(p0, 4));
+		p1 = _mm_and_si128(p1,  _mm_or_si128(_mm_srli_si128(p0, 12), _mm_slli_si128(p1, 4)));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(p0, _mm_slli_si128(r.bits[0], 8)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_slli_si128(r.bits[1], 8)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, _mm_srli_si128(r.bits[0], 8)));
+		p1 = _mm_and_si128(p0,  _mm_or_si128(_mm_srli_si128(p0, 8), _mm_slli_si128(p1, 8)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(p1, r.bits[0]));
+		
+		// Simple or-and-mask in left direction
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_epi16(r.bits[0], 1)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(bits[1], _mm_srli_epi16(r.bits[1], 1)));
+		
+		// Simple or-and-mask in downward direction
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_si128(r.bits[0], 2)));
+		r.bits[1] = _mm_or_si128(r.bits[1], _mm_and_si128(bits[1], _mm_srli_si128(r.bits[1], 2)));
+		r.bits[0] = _mm_or_si128(r.bits[0], _mm_and_si128(bits[0], _mm_srli_si128(r.bits[1], 14)));
+		
 	} while(r != prev);
 	return r;
 }
 
 BoardMask BoardMask::rotated() const
 {
+	// This is here because the code is so fast and neat, it is not really useful
 	m128 a = bits[0];
 	m128 b = bits[1];
 	m128 x = _mm_setzero_si128();
 	m128 y = _mm_setzero_si128();
-	
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 0);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 1);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 2);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 3);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 4);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 5);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 6);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	x = _mm_insert_epi16(x, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 7);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 0);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 1);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 2);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 3);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 4);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 5);
-	a = _mm_slli_epi16(a, 1);
-	b = _mm_slli_epi16(b, 1);
+	a = _mm_slli_epi16(a, 1); b = _mm_slli_epi16(b, 1);
 	y = _mm_insert_epi16(y, _mm_movemask_epi8(_mm_packs_epi16(a, b)), 6);
-
 	BoardMask bm;
 	bm.bits[0] = x;
 	bm.bits[1] = y;
@@ -439,10 +446,10 @@ inline BoardPoint BoardMask::firstPoint() const
 void printMask(std::ostream& out, const uint16* data)
 {
 	out << "   ABCDEFGHIJKLMNO" << std::endl;
-	for(int y = 14; y >= 0; --y) {
+	for(int y = 15; y >= 0; --y) {
 		out.width(2);
 		out << y + 1 << " ";
-		for(int x = 0; x < 14; ++x)
+		for(int x = 0; x < 16; ++x)
 			out << ((data[y] & (1 << x)) ? "0" : ".");
 		out << " ";
 		out.width(2);
@@ -585,8 +592,14 @@ bool GroupIterator::next()
 	// Seed the new group with a single point
 	_group = BoardMask(_remaining.firstPoint());
 	
+	BoardMask old;
+	do {
+		old = _group;
+		_group.expand();
+	} while(old == _group);
+	
 	// Connect to the full group
-	_group = _remaining.connected(_group);
+	//_group = _remaining.connected(_group);
 	
 	// Subtract group from remaining
 	_remaining -= _group;
@@ -1100,7 +1113,6 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
-	/*
 	BoardMask bm;
 	for(int i = 0; i < 6; ++i)
 		bm.set(BoardPoint(rand() % 15, rand() % 15));
@@ -1117,9 +1129,7 @@ int main(int argc, char* argv[])
 	
 	std::cerr << group << std::endl;
 	
-	
 	return 0;
-	*/
 	
 	
 	Game g;
