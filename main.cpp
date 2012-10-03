@@ -21,6 +21,7 @@ typedef uint8_t uint8;
 typedef uint16_t uint16;
 typedef int32_t sint32;
 typedef uint32_t uint32;
+typedef uint64_t uint64;
 
 /// @see http://fierz.ch/strategy2.htm
 /// @see http://senseis.xmp.net/?UCT
@@ -757,7 +758,6 @@ void TurnIterator::choose(const BoardPoint& point)
 //  T A B L E   E N T R Y
 //
 
-/*
 class TableEntry
 {
 public:
@@ -836,7 +836,11 @@ public:
 	void put(const TableEntry& entry);
 	
 protected:
+	friend std::ostream& operator<<(std::ostream& out, const Table& table);
 	static int _size;
+	int _hits;
+	int _misses;
+	int _collisions;
 	TableEntry* _table;
 };
 
@@ -845,6 +849,9 @@ int Table::_size = (60 << 20) / sizeof(TableEntry);
 Table table;
 
 Table::Table()
+: _hits(0)
+, _misses(0)
+, _collisions(0)
 {
 	if(_size % 2 == 0)
 		++_size;
@@ -858,17 +865,31 @@ Table::~Table()
 
 TableEntry Table::get(uint64 hash)
 {
-	static TableEntry notFound;
-	if(_table[hash % _size].hash() == hash)
-		return _table[hash % _size];
-	return notFound;
+	TableEntry result = _table[hash % _size];
+	if(result.hash() == hash) {
+		++_hits;
+		return result;
+	} else if (result.kind() == TableEntry::notFound) {
+		++_misses;
+		return result;
+	} else {
+		++_collisions;
+		return TableEntry();
+	}
 }
 
 void Table::put(const TableEntry& entry)
 {
 	_table[entry.hash() % _size] = entry;
 }
-*/
+
+std::ostream& operator<<(std::ostream& out, const Table& table)
+{
+	std::cerr << "Table size: " << table._size << " (" << (table._size * sizeof(TableEntry)) << " bytes)" << std::endl;
+	std::cerr << "Table hits: " << table._hits << std::endl;
+	std::cerr << "Table misses: " << table._misses << std::endl;
+	std::cerr << "Table collisions: " << table._collisions << std::endl;
+}
 
 //
 //  S C O R E   H E U R I S T I C
