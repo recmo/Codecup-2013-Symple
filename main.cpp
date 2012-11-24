@@ -966,16 +966,16 @@ public:
 	static const sint32 groupPoints = -6000;
 	
 	// Heuristics
-	sint32 earlyGroupPoints = 3000;
-	sint32 earlyManyGroupPoints = -6000;
-	sint32 manyTransitionBegin = 7;
-	sint32 manyTransitionEnd = 13;
-	sint32 earlyTransistionBegin = 180;
-	sint32 earlyTransistionEnd = 220;
-	sint32 firstFreedomPoints = 187;
-	sint32 secondFreedomPoints = 87;
-	sint32 thirdFreedomPoints = 37;
-	sint32 fourthFreedomPoints = 12;
+	sint32 earlyGroupPoints;
+	sint32 earlyManyGroupPoints;
+	sint32 manyTransitionBegin;
+	sint32 manyTransitionEnd;
+	sint32 earlyTransistionBegin;
+	sint32 earlyTransistionEnd;
+	sint32 firstFreedomPoints;
+	sint32 secondFreedomPoints;
+	sint32 thirdFreedomPoints;
+	sint32 fourthFreedomPoints;
 	
 	void irradiate(sint32 sievert);
 	
@@ -986,15 +986,15 @@ protected:
 };
 
 ScoreHeuristic::ScoreHeuristic()
-: earlyGroupPoints(3000)
-, earlyManyGroupPoints(-6000)
-, manyTransitionBegin(7)
-, manyTransitionEnd(13)
-, earlyTransistionBegin(180)
-, earlyTransistionEnd(220)
-, firstFreedomPoints(187)
-, secondFreedomPoints(87)
-, thirdFreedomPoints(37)
+: earlyGroupPoints(7864)
+, earlyManyGroupPoints(-2363)
+, manyTransitionBegin(6)
+, manyTransitionEnd(8)
+, earlyTransistionBegin(155)
+, earlyTransistionEnd(180)
+, firstFreedomPoints(160)
+, secondFreedomPoints(70)
+, thirdFreedomPoints(45)
 , fourthFreedomPoints(12)
 {
 }
@@ -1031,18 +1031,16 @@ void ScoreHeuristic::irradiate(sint32 sievert)
 	ScoreHeuristic old = *this;
 	do {
 		// Irradiate 
-		switch(rand() % 10) {
-		case 0: irradiate(&earlyGroupPoints, sievert); break;
-		case 1: irradiate(&earlyManyGroupPoints, sievert); break;
-		case 2: irradiate(&manyTransitionBegin, sievert); break;
-		case 3: irradiate(&manyTransitionEnd, sievert); break;
-		case 4: irradiate(&earlyTransistionBegin, sievert); break;
-		case 5: irradiate(&earlyTransistionEnd, sievert); break;
-		case 6: irradiate(&firstFreedomPoints, sievert); break;
-		case 7: irradiate(&secondFreedomPoints, sievert); break;
-		case 8: irradiate(&thirdFreedomPoints, sievert); break;
-		case 9: irradiate(&fourthFreedomPoints, sievert); break;
-		}
+		irradiate(&earlyGroupPoints, sievert);
+		irradiate(&earlyManyGroupPoints, sievert);
+		irradiate(&manyTransitionBegin, sievert);
+		irradiate(&manyTransitionEnd, sievert);
+		irradiate(&earlyTransistionBegin, sievert);
+		irradiate(&earlyTransistionEnd, sievert);
+		irradiate(&firstFreedomPoints, sievert);
+		irradiate(&secondFreedomPoints, sievert);
+		irradiate(&thirdFreedomPoints, sievert);
+		irradiate(&fourthFreedomPoints, sievert);
 		
 		// Sanetize
 		if(manyTransitionEnd > 40)
@@ -1070,9 +1068,7 @@ void ScoreHeuristic::irradiate(sint32* parameter, sint32 sievert)
 	sint32 min = value - maxDeviation;
 	sint32 max = value + maxDeviation;
 	sint32 newValue;
-	do {
-		newValue = min + (rand() % (max - min));
-	} while(newValue == value);
+	newValue = min + (rand() % (max - min));
 	*parameter = newValue;
 }
 
@@ -1250,7 +1246,7 @@ public:
 	void round();
 	
 protected:
-	const uint32 _cutoff = 3000;
+	const uint32 _cutoff = 1000;
 	const ScoreHeuristic& _heuristicA;
 	const ScoreHeuristic& _heuristicB;
 	uint32 _trials;
@@ -1440,10 +1436,10 @@ void Game::receiveMoves(const std::string& moves)
 }
 
 
-void evolve()
+void evolve(const ScoreHeuristic& heuristic)
 {
-	ScoreHeuristic def;
-	ScoreHeuristic best;
+	ScoreHeuristic def = heuristic;
+	ScoreHeuristic best = heuristic;
 	const int initialMutationRate = 250;
 	const int rounds = 400;
 	for(int i = 0; i < rounds; ++i) {
@@ -1493,22 +1489,25 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	std::cerr << table << std::endl;
 	
-	// evolve();
-	// return 0;
-	
 	// ScoreHeuristic heuristic(3000, -6000, 7, 13, 180, 220, 187, 87, 37, 12);
 	
 	// ScoreHeuristic heuristic(2370, -5410, 5, 5, 167, 177, 148, 82, 33, -1); // E1
 	// ScoreHeuristic heuristic(2271, -6105, 5, 5, 156, 215, 158, 78, 34, 5); // E2
-	ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3
-	
-	// Long runs:
+	// ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3 <-- Very good!
 	// ScoreHeuristic heuristic(1256, -823, 5, 5, 144, 201, 115, 53, 43, 2); // E4
 	// ScoreHeuristic heuristic(341, -4576, 5, 5, 139, 191, 103, 57, 22, 12); // E5
 	// ScoreHeuristic heuristic(4710, -17597, 6, 6, 167, 172, 98, 35, 29, -10); // E6
-
 	// ScoreHeuristic heuristic(1716, -4330, 5, 5, 145, 209, 90, 38, 31, 3); // E7
 	
+	// New re-runs on E3
+	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8 <-- Slightly better!
+	// ScoreHeuristic heuristic(7127, -2330, 6, 6, 151, 188, 147, 65, 43, 11); // E9
+	// ScoreHeuristic heuristic(6526, -1872, 6, 8, 172, 172, 156, 75, 42, 13); // E10
+	// ScoreHeuristic heuristic(5813, -3234, 6, 6, 143, 154, 109, 61, 31, 11); // E11
+	
+	// evolve(heuristic);
+	// return 0;
+
 	std::cerr << heuristic << std::endl;
 	Game g(heuristic);
 	g.play();
