@@ -603,6 +603,7 @@ public:
 	void recalculateHash() ssefunc;
 	
 	bool gameOver() const ssefunc { return (~(_white | _black)).isEmpty(); }
+	sint32 score();
 	
 	void whiteMove(const BoardPoint& move) ssefunc;
 	void blackMove(const BoardPoint& move) ssefunc;
@@ -690,6 +691,25 @@ void printBoard(std::ostream& out, uint16* white, uint16* black, uint64 hash)
 	out.fill('0');
 	out << std::hex << hash << std::dec << std::endl;
 	out.fill(' ');
+}
+
+sint32 Board::score()
+{
+	sint32 score = 0;
+	
+	// Each piece is one point
+	score += white().popcount();
+	score -= black().popcount();
+	
+	// For each separate group 6 points will be subtracted.
+	score -= 6 * GroupIterator::count(white());
+	score += 6 * GroupIterator::count(black());
+	
+	// The player with the highest score gets 100 bonus points.
+	if(gameOver())
+		score += 100 * sgn(score);
+	
+	return score;
 }
 
 inline std::ostream& operator<<(std::ostream& out, const Board& board)
@@ -934,87 +954,180 @@ std::ostream& operator<<(std::ostream& out, const Table& table)
 
 class ScoreHeuristic {
 public:
-	ScoreHeuristic(const Board& board) ssefunc;
-	~ScoreHeuristic() ssefunc {}
+	ScoreHeuristic();
+	~ScoreHeuristic() { }
+	static sint32 mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32 pos);
 	
-	sint32 evaluate() ssefunc;
+	// Game scores, multiplied by 1000
+	static const sint32 piecePoints = 1000;
+	static const sint32 groupPoints = -6000;
+	
+	// Heuristics
+	sint32 earlyGroupPoints = 3000;
+	sint32 earlyManyGroupPoints = -6000;
+	sint32 manyTransitionBegin = 7;
+	sint32 manyTransitionEnd = 13;
+	sint32 earlyTransistionBegin = 180;
+	sint32 earlyTransistionEnd = 220;
+	sint32 firstFreedomPoints = 187;
+	sint32 secondFreedomPoints = 87;
+	sint32 thirdFreedomPoints = 37;
+	sint32 fourthFreedomPoints = 12;
+	
+	void irradiate(sint32 sievert);
+	
+	sint32 evaluate(const Board& board) const ssefunc;
 	
 protected:
-	const Board& _board;
-	sint32 spotScore[225][15][15];
-	sint32 groupScore[225][15][15];
+	void irradiate(sint32* parameter, sint32 sievert);
 };
 
-ScoreHeuristic::ScoreHeuristic(const Board& board)
-: _board(board)
+ScoreHeuristic::ScoreHeuristic()
+: earlyGroupPoints(3000)
+, earlyManyGroupPoints(-6000)
+, manyTransitionBegin(7)
+, manyTransitionEnd(13)
+, earlyTransistionBegin(180)
+, earlyTransistionEnd(220)
+, firstFreedomPoints(187)
+, secondFreedomPoints(87)
+, thirdFreedomPoints(37)
+, fourthFreedomPoints(12)
 {
 }
 
-sint32 ScoreHeuristic::evaluate()
+sint32 ScoreHeuristic::mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32 pos)
 {
-	TableEntry te = table.get(_board.hash());
+	if(pos <= left)
+		return a;
+	if(pos >= right);
+		return b;
+	sint32 leftWeight = pos - left;
+	sint32 rightWeight = right - pos;
+	sint32 sum = right - left;
+	return ((a * leftWeight) + (b * rightWeight)) / sum;
+}
+
+void ScoreHeuristic::irradiate(sint32 sievert)
+{
+	// Irradiate 
+	switch(rand() % 10) {
+	case 0: irradiate(&earlyGroupPoints, sievert); break;
+	case 1: irradiate(&earlyManyGroupPoints, sievert); break;
+	case 2: irradiate(&manyTransitionBegin, sievert); break;
+	case 3: irradiate(&manyTransitionEnd, sievert); break;
+	case 4: irradiate(&earlyTransistionBegin, sievert); break;
+	case 5: irradiate(&earlyTransistionEnd, sievert); break;
+	case 6: irradiate(&firstFreedomPoints, sievert); break;
+	case 7: irradiate(&secondFreedomPoints, sievert); break;
+	case 8: irradiate(&thirdFreedomPoints, sievert); break;
+	case 9: irradiate(&fourthFreedomPoints, sievert); break;
+	}
+	
+	// Sanetize
+	if(manyTransitionEnd > 40)
+		manyTransitionEnd = 40;
+	if(manyTransitionBegin < 0)
+		manyTransitionBegin = 0;
+	if(earlyTransistionBegin < 0)
+		earlyTransistionBegin = 0;
+	if(earlyTransistionEnd > 225)
+		earlyTransistionEnd = 225;
+	if(manyTransitionBegin > manyTransitionEnd)
+		manyTransitionBegin = manyTransitionEnd;
+	if(earlyTransistionBegin > earlyTransistionEnd)
+		earlyTransistionBegin = earlyTransistionEnd;
+}
+
+void ScoreHeuristic::irradiate(sint32* parameter, sint32 sievert)
+{
+	// sievert is the maximum mutation expressed in thousands of the value
+	sint32 value = *parameter;
+	sint32 maxDeviation = abs((value * sievert) / 1000);
+	if(maxDeviation <= 0)
+		maxDeviation = 1;
+	sint32 min = value - maxDeviation;
+	sint32 max = value + maxDeviation;
+	sint32 newValue;
+	do {
+		newValue = min + (rand() % (max - min));
+	} while(newValue == value);
+	*parameter = newValue;
+}
+
+sint32 ScoreHeuristic::evaluate(const Board& board) const
+{
+	/*
+	TableEntry te = table.get(board.hash());
 	if(te.kind() != TableEntry::notFound) {
 		return te.score();
 	}
+	*/
 	
 	sint32 score = 0;
-	
-	int progress = (_board.black() | _board.white()).popcount();
+	sint32 whitePieces = board.white().popcount();
+	sint32 blackPieces = board.black().popcount();
+	sint32 progress = whitePieces + blackPieces;
 	
 	// The score of each player is determined by counting the number of stones he has placed on the board. 
-	score += 1000 * _board.white().popcount();
-	score -= 1000 * _board.black().popcount();
+	score += piecePoints * (whitePieces - blackPieces);
 	
-	// For each separate group 6 points will be subtracted. Note that at least 6 points will be subtracted since the stones will always form at least one group.
-	int whiteGroups = GroupIterator::count(_board.white());
-	int blackGroups = GroupIterator::count(_board.black());
-	int groupsDiscount = blackGroups - whiteGroups;
-	score += 6000 * groupsDiscount;
-	const int convergeStart = 180;
-	const int growStart = 9;
-	if(progress < convergeStart) {
-		score += 9000 * min(whiteGroups, growStart);
-		score -= 9000 * min(blackGroups, growStart);
-	}
+	// For each separate group 6 points will be subtracted.
+	int whiteGroups = GroupIterator::count(board.white());
+	int blackGroups = GroupIterator::count(board.black());
+	sint32 lateGroupScore = groupPoints * (whiteGroups - blackGroups);
+	sint32 earlyGroupScore = 0;
+	for(int i = 0; i < whiteGroups; ++i)
+		earlyGroupScore += mix(earlyGroupPoints, earlyManyGroupPoints, manyTransitionBegin, manyTransitionEnd, i);
+	for(int i = 0; i < blackGroups; ++i)
+		earlyGroupScore -= mix(earlyGroupPoints, earlyManyGroupPoints, manyTransitionBegin, manyTransitionEnd, i);
+	score += mix(earlyGroupScore, lateGroupScore, earlyTransistionBegin, earlyTransistionEnd, progress);
 	
 	// Add points for expansion room
-	BoardMask unoccupied = ~(_board.white() | _board.black());
-	BoardMask whiteExpanded = _board.white().expanded() & unoccupied;
-	BoardMask blackExpanded = _board.black().expanded() & unoccupied;
-	score += 100 * whiteExpanded.popcount();
-	score -= 100 * blackExpanded.popcount();
+	BoardMask unoccupied = ~(board.white() | board.black());
+	BoardMask whiteExpanded = board.white().expanded() & unoccupied;
+	BoardMask blackExpanded = board.black().expanded() & unoccupied;
+	score += (firstFreedomPoints - secondFreedomPoints - thirdFreedomPoints - fourthFreedomPoints) * (whiteExpanded.popcount() - blackExpanded.popcount());
 	whiteExpanded.expand();
 	whiteExpanded &= unoccupied;
 	blackExpanded.expand();
 	blackExpanded &= unoccupied;
-	score += 50 * whiteExpanded.popcount();
-	score -= 50 * blackExpanded.popcount();
+	score += (secondFreedomPoints - thirdFreedomPoints - fourthFreedomPoints) * (whiteExpanded.popcount() - blackExpanded.popcount());
 	whiteExpanded.expand();
 	whiteExpanded &= unoccupied;
 	blackExpanded.expand();
 	blackExpanded &= unoccupied;
-	score += 25 * whiteExpanded.popcount();
-	score -= 25 * blackExpanded.popcount();
+	score += (thirdFreedomPoints - fourthFreedomPoints) * (whiteExpanded.popcount() - blackExpanded.popcount());
 	whiteExpanded.expand();
 	whiteExpanded &= unoccupied;
 	blackExpanded.expand();
 	blackExpanded &= unoccupied;
-	score += 12 * whiteExpanded.popcount();
-	score -= 12 * blackExpanded.popcount();
+	score += fourthFreedomPoints * (whiteExpanded.popcount() - blackExpanded.popcount());
 	
 	// The player with the highest score gets 100 bonus points.
-	if(progress == 225)
-		score += 100000 * sgn(score);
-	
-	// // Score upper bound: 15 x 15 - 6 + 100 = 319
-	// // Scores are multiplied by 2^10 to create space for fractional points
-	// // This gives approximately 10 bits of headroom on msb and lsb side
-	// score <<= 10;
+	//if(progress == 225)
+	//	score += 100000 * sgn(score);
 	
 	// Cache
-	table.put(TableEntry(_board, score, TableEntry::exact));
+	// table.put(TableEntry(board, score, TableEntry::exact));
 	
 	return score;
+}
+
+std::ostream& operator<<(std::ostream& out, const ScoreHeuristic& heuristic)
+{
+	out << "Heuristic(";
+	out << heuristic.earlyGroupPoints << ", ";
+	out << heuristic.earlyManyGroupPoints << ", ";
+	out << heuristic.manyTransitionBegin << ", ";
+	out << heuristic.manyTransitionEnd << ", ";
+	out << heuristic.earlyTransistionBegin << ", ";
+	out << heuristic.earlyTransistionEnd << ", ";
+	out << heuristic.firstFreedomPoints << ", ";
+	out << heuristic.secondFreedomPoints << ", ";
+	out << heuristic.thirdFreedomPoints << ", ";
+	out << heuristic.fourthFreedomPoints << ")";
+	out << std::endl;
 }
 
 //
@@ -1023,17 +1136,23 @@ sint32 ScoreHeuristic::evaluate()
 
 class Train {
 public:
-	Train() ssefunc;
+	Train(const ScoreHeuristic& white, const ScoreHeuristic& black) ssefunc;
 	~Train() { }
 	
 	void play() ssefunc;
 	
+	sint32 score() { return _board.score(); }
+	
 protected:
 	Board _board;
+	const ScoreHeuristic& _whiteHeuristic;
+	const ScoreHeuristic& _blackHeuristic;
 };
 
-Train::Train()
+Train::Train(const ScoreHeuristic& white, const ScoreHeuristic& black)
 : _board()
+, _whiteHeuristic(white)
+, _blackHeuristic(black)
 {
 }
 
@@ -1057,8 +1176,13 @@ void Train::play()
 					afterMove.whiteMove(move);
 				else
 					afterMove.blackMove(move);
-				ScoreHeuristic sc(afterMove);
-				sint32 moveScore = sc.evaluate();
+				
+				sint32 moveScore = 0;
+				if(whitesTurn)
+					moveScore = _whiteHeuristic.evaluate(afterMove);
+				else
+					moveScore = _blackHeuristic.evaluate(afterMove);
+				
 				if(!whitesTurn)
 					moveScore = -moveScore;
 				if(moveScore > goodScore) {
@@ -1087,6 +1211,77 @@ void Train::play()
 		//std::cerr << std::endl;
 		whitesTurn = !whitesTurn;
 	}
+}
+
+//
+// Benchmark
+//
+
+
+class Benchmark {
+public:
+	Benchmark(const ScoreHeuristic& a, const ScoreHeuristic& b);
+	
+	void measure();
+	double score() const { return _mean; }
+	
+	void round();
+	
+protected:
+	const ScoreHeuristic& _heuristicA;
+	const ScoreHeuristic& _heuristicB;
+	uint32 _trials;
+	double _mean;
+	double _squared;
+};
+
+Benchmark::Benchmark(const ScoreHeuristic& a, const ScoreHeuristic& b)
+: _heuristicA(a)
+, _heuristicB(b)
+, _trials(0)
+, _mean(0.0)
+, _squared(0.0)
+{
+}
+
+
+void Benchmark::measure()
+{
+	// We statistically test whether E(score()) < 0 or E(score()) > 0 using the central limit theorem
+	
+	// Kick of with thirty rounds
+	while(_trials < 30)
+		round();
+	
+	/*
+	// Repeat until statistical significance
+	/// @bug having the sample size depend on whether significance has been reached yet is of course wrong.
+	for(;;) {
+		double variance = (_squared - _mean * _mean) / _trials;
+		
+		 // One more round
+		 round();
+	}
+	*/
+}
+
+
+void Benchmark::round()
+{
+	// Play two games, A vs B and B vs A
+	// return the sum of the final scores
+	sint32 score = 0;
+	Train AvsB(_heuristicA, _heuristicB);
+	AvsB.play();
+	score += AvsB.score();
+	Train BvsA(_heuristicB, _heuristicA);
+	BvsA.play();
+	score -= BvsA.score();
+	
+	// Combine into the average
+	++_trials;
+	_mean += score;
+	_squared += score * score;
 }
 
 //
@@ -1170,8 +1365,8 @@ std::string Game::makeMoves()
 				afterMove.whiteMove(move);
 			else
 				afterMove.blackMove(move);
-			ScoreHeuristic sc(afterMove);
-			sint32 moveScore = sc.evaluate();
+			ScoreHeuristic sc;
+			sint32 moveScore = sc.evaluate(afterMove);
 			if(_isBlack)
 				moveScore = -moveScore;
 			if(moveScore > goodScore) {
@@ -1231,18 +1426,35 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	std::cerr << table << std::endl;
 	
-	//Board b;
-	//b.whiteMove(BoardPoint(3,3));
-	//std::cerr << b << std::endl;
-	//return 0;
-	
-	for(int i = 0; i < 100; ++i) {
-		Train t;
-		t.play();
+	ScoreHeuristic def;
+	ScoreHeuristic best;
+	for(int i = 0; i < 10000; ++i) {
+		
+		// Create a mutant form
+		ScoreHeuristic mutant = best;
+		mutant.irradiate(1000 - (i / 10));
+		
+		// The mutant must win from the current best
+		Benchmark bm(mutant, best);
+		bm.measure();
+		if(bm.score() <= 0.0)
+			continue;
+		
+		// The mutant must win from the default
+		Benchmark bmdef(mutant, def);
+		bmdef.measure();
+		if(bmdef.score() <= 0.0)
+			continue;
+		
+		// Keep the mutant if it wins both from the default and current best
+		std::cerr << i << "\t" << bmdef.score() << "\t" << bm.score() << "\t" << mutant << std::endl;
+		best = mutant;
 	}
 	
-	//Game g;
-	//g.play();
+	return 0;
+	
+	Game g;
+	g.play();
 	
 	std::cerr << table << std::endl;
 	std::cerr << "Exit" << std::endl;
