@@ -6,6 +6,8 @@
 #include <sstream>
 #include <limits>
 #include <unistd.h>
+#include <math.h>
+#include <string.h>
 #define ssefunc __attribute__ ((__target__ ("sse4.1")))
 #define always_inline __attribute__ ((always_inline))
 #pragma GCC target ("sse4.1")
@@ -955,6 +957,7 @@ std::ostream& operator<<(std::ostream& out, const Table& table)
 class ScoreHeuristic {
 public:
 	ScoreHeuristic();
+	ScoreHeuristic(sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32);
 	~ScoreHeuristic() { }
 	static sint32 mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32 pos);
 	
@@ -996,6 +999,21 @@ ScoreHeuristic::ScoreHeuristic()
 {
 }
 
+ScoreHeuristic::ScoreHeuristic(sint32 a, sint32 b, sint32 c, sint32 d, sint32 e, sint32 f, sint32 g, sint32 h, sint32 i, sint32 j)
+: earlyGroupPoints(a)
+, earlyManyGroupPoints(b)
+, manyTransitionBegin(c)
+, manyTransitionEnd(d)
+, earlyTransistionBegin(e)
+, earlyTransistionEnd(f)
+, firstFreedomPoints(g)
+, secondFreedomPoints(h)
+, thirdFreedomPoints(i)
+, fourthFreedomPoints(j)
+{
+}
+
+
 sint32 ScoreHeuristic::mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32 pos)
 {
 	if(pos <= left)
@@ -1010,33 +1028,36 @@ sint32 ScoreHeuristic::mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32
 
 void ScoreHeuristic::irradiate(sint32 sievert)
 {
-	// Irradiate 
-	switch(rand() % 10) {
-	case 0: irradiate(&earlyGroupPoints, sievert); break;
-	case 1: irradiate(&earlyManyGroupPoints, sievert); break;
-	case 2: irradiate(&manyTransitionBegin, sievert); break;
-	case 3: irradiate(&manyTransitionEnd, sievert); break;
-	case 4: irradiate(&earlyTransistionBegin, sievert); break;
-	case 5: irradiate(&earlyTransistionEnd, sievert); break;
-	case 6: irradiate(&firstFreedomPoints, sievert); break;
-	case 7: irradiate(&secondFreedomPoints, sievert); break;
-	case 8: irradiate(&thirdFreedomPoints, sievert); break;
-	case 9: irradiate(&fourthFreedomPoints, sievert); break;
-	}
-	
-	// Sanetize
-	if(manyTransitionEnd > 40)
-		manyTransitionEnd = 40;
-	if(manyTransitionBegin < 0)
-		manyTransitionBegin = 0;
-	if(earlyTransistionBegin < 0)
-		earlyTransistionBegin = 0;
-	if(earlyTransistionEnd > 225)
-		earlyTransistionEnd = 225;
-	if(manyTransitionBegin > manyTransitionEnd)
-		manyTransitionBegin = manyTransitionEnd;
-	if(earlyTransistionBegin > earlyTransistionEnd)
-		earlyTransistionBegin = earlyTransistionEnd;
+	ScoreHeuristic old = *this;
+	do {
+		// Irradiate 
+		switch(rand() % 10) {
+		case 0: irradiate(&earlyGroupPoints, sievert); break;
+		case 1: irradiate(&earlyManyGroupPoints, sievert); break;
+		case 2: irradiate(&manyTransitionBegin, sievert); break;
+		case 3: irradiate(&manyTransitionEnd, sievert); break;
+		case 4: irradiate(&earlyTransistionBegin, sievert); break;
+		case 5: irradiate(&earlyTransistionEnd, sievert); break;
+		case 6: irradiate(&firstFreedomPoints, sievert); break;
+		case 7: irradiate(&secondFreedomPoints, sievert); break;
+		case 8: irradiate(&thirdFreedomPoints, sievert); break;
+		case 9: irradiate(&fourthFreedomPoints, sievert); break;
+		}
+		
+		// Sanetize
+		if(manyTransitionEnd > 40)
+			manyTransitionEnd = 40;
+		if(manyTransitionBegin < 0)
+			manyTransitionBegin = 0;
+		if(earlyTransistionBegin < 0)
+			earlyTransistionBegin = 0;
+		if(earlyTransistionEnd > 225)
+			earlyTransistionEnd = 225;
+		if(manyTransitionBegin > manyTransitionEnd)
+			manyTransitionEnd = manyTransitionBegin;
+		if(earlyTransistionBegin > earlyTransistionEnd)
+			earlyTransistionEnd = earlyTransistionBegin;
+	} while(memcmp(this, &old, sizeof(ScoreHeuristic())) == 0);
 }
 
 void ScoreHeuristic::irradiate(sint32* parameter, sint32 sievert)
@@ -1127,7 +1148,6 @@ std::ostream& operator<<(std::ostream& out, const ScoreHeuristic& heuristic)
 	out << heuristic.secondFreedomPoints << ", ";
 	out << heuristic.thirdFreedomPoints << ", ";
 	out << heuristic.fourthFreedomPoints << ")";
-	out << std::endl;
 }
 
 //
@@ -1182,9 +1202,9 @@ void Train::play()
 					moveScore = _whiteHeuristic.evaluate(afterMove);
 				else
 					moveScore = _blackHeuristic.evaluate(afterMove);
-				
 				if(!whitesTurn)
 					moveScore = -moveScore;
+				
 				if(moveScore > goodScore) {
 					goodScore = moveScore;
 					goodMoves = BoardMask();
@@ -1204,11 +1224,6 @@ void Train::play()
 			else
 				_board.blackMove(moves[i]);
 		}
-		
-		//ScoreHeuristic sc(_board);
-		//std::cerr << _board;
-		//std::cerr << "Score = " << sc.evaluate() << std::endl;
-		//std::cerr << std::endl;
 		whitesTurn = !whitesTurn;
 	}
 }
@@ -1223,15 +1238,23 @@ public:
 	Benchmark(const ScoreHeuristic& a, const ScoreHeuristic& b);
 	
 	void measure();
-	double score() const { return _mean; }
+	
+	bool cutoff() const { return _trials >= _cutoff; }
+	bool firstWon() const { return !cutoff() && (mean() > 0.0); }
+	bool secondWon() const { return !cutoff() && (mean() > 0.0); }
+	
+	double mean() const { return _sum / double(_trials); }
+	double variance() const { return (_squared / double(_trials)) - mean() * mean(); }
+	double stddev() const { return sqrt(variance()); }
 	
 	void round();
 	
 protected:
+	const uint32 _cutoff = 3000;
 	const ScoreHeuristic& _heuristicA;
 	const ScoreHeuristic& _heuristicB;
 	uint32 _trials;
-	double _mean;
+	double _sum;
 	double _squared;
 };
 
@@ -1239,7 +1262,7 @@ Benchmark::Benchmark(const ScoreHeuristic& a, const ScoreHeuristic& b)
 : _heuristicA(a)
 , _heuristicB(b)
 , _trials(0)
-, _mean(0.0)
+, _sum(0.0)
 , _squared(0.0)
 {
 }
@@ -1249,20 +1272,28 @@ void Benchmark::measure()
 {
 	// We statistically test whether E(score()) < 0 or E(score()) > 0 using the central limit theorem
 	
-	// Kick of with thirty rounds
-	while(_trials < 30)
+	// Kick of with a few rounds
+	while(_trials < 10)
 		round();
 	
-	/*
-	// Repeat until statistical significance
-	/// @bug having the sample size depend on whether significance has been reached yet is of course wrong.
 	for(;;) {
-		double variance = (_squared - _mean * _mean) / _trials;
+		double s2 = (double(_trials) / double(_trials - 1)) * variance();
+		const double z = 1.96;
+		double muMin = mean() - z * sqrt(s2 / _trials);
+		double muMax = mean() + z * sqrt(s2 / _trials);
 		
-		 // One more round
-		 round();
+		// Stop if we have found significant results
+		if(muMin > 0.0)
+			return;
+		if(muMax < 0.0)
+			return;
+		if(_trials >= _cutoff) {
+			std::cerr << ":" << std::flush;
+			return;
+		}
+		
+		round();
 	}
-	*/
 }
 
 
@@ -1280,7 +1311,7 @@ void Benchmark::round()
 	
 	// Combine into the average
 	++_trials;
-	_mean += score;
+	_sum += score;
 	_squared += score * score;
 }
 
@@ -1290,12 +1321,13 @@ void Benchmark::round()
 
 class Game {
 public:
-	Game() ssefunc;
+	Game(const ScoreHeuristic& heuristic) ssefunc;
 	~Game() ssefunc { }
 	
 	void play() ssefunc;
 	
 protected:
+	const ScoreHeuristic& _heuristic;
 	Board _board;
 	bool _isWhite;
 	bool _isBlack;
@@ -1303,8 +1335,9 @@ protected:
 	void receiveMoves(const std::string& moves);
 };
 
-Game::Game()
-: _board()
+Game::Game(const ScoreHeuristic& heuristic)
+: _heuristic(heuristic)
+, _board()
 , _isWhite(false)
 , _isBlack(false)
 {
@@ -1365,8 +1398,7 @@ std::string Game::makeMoves()
 				afterMove.whiteMove(move);
 			else
 				afterMove.blackMove(move);
-			ScoreHeuristic sc;
-			sint32 moveScore = sc.evaluate(afterMove);
+			sint32 moveScore = _heuristic.evaluate(afterMove);
 			if(_isBlack)
 				moveScore = -moveScore;
 			if(moveScore > goodScore) {
@@ -1408,6 +1440,41 @@ void Game::receiveMoves(const std::string& moves)
 }
 
 
+void evolve()
+{
+	ScoreHeuristic def;
+	ScoreHeuristic best;
+	const int initialMutationRate = 250;
+	const int rounds = 400;
+	for(int i = 0; i < rounds; ++i) {
+		std::cerr << "." << std::flush;
+		if(i % 100 == 0) {
+			std::cerr << " " << i << std::endl;
+		}
+		
+		// Create a mutant form
+		ScoreHeuristic mutant = best;
+		mutant.irradiate(initialMutationRate - ((initialMutationRate * i) / rounds));
+		
+		// The mutant must win from the current best
+		Benchmark bm(mutant, best);
+		bm.measure();
+		if(!bm.firstWon())
+			continue;
+		
+		// The mutant must win from the defaults
+		Benchmark bmdef(mutant, def);
+		bmdef.measure();
+		if(!bmdef.firstWon())
+			continue;
+		
+		// Keep the mutant if it wins both from the default and current best
+		std::cerr << std::endl;
+		std::cerr << i << "\t" << bmdef.mean() << "\t" << bm.mean() << "\t" << mutant << std::endl;
+		best = mutant;
+	}
+}
+
 //
 //  M A I N
 //
@@ -1426,34 +1493,24 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	std::cerr << table << std::endl;
 	
-	ScoreHeuristic def;
-	ScoreHeuristic best;
-	for(int i = 0; i < 10000; ++i) {
-		
-		// Create a mutant form
-		ScoreHeuristic mutant = best;
-		mutant.irradiate(1000 - (i / 10));
-		
-		// The mutant must win from the current best
-		Benchmark bm(mutant, best);
-		bm.measure();
-		if(bm.score() <= 0.0)
-			continue;
-		
-		// The mutant must win from the default
-		Benchmark bmdef(mutant, def);
-		bmdef.measure();
-		if(bmdef.score() <= 0.0)
-			continue;
-		
-		// Keep the mutant if it wins both from the default and current best
-		std::cerr << i << "\t" << bmdef.score() << "\t" << bm.score() << "\t" << mutant << std::endl;
-		best = mutant;
-	}
+	// evolve();
+	// return 0;
 	
-	return 0;
+	// ScoreHeuristic heuristic(3000, -6000, 7, 13, 180, 220, 187, 87, 37, 12);
 	
-	Game g;
+	// ScoreHeuristic heuristic(2370, -5410, 5, 5, 167, 177, 148, 82, 33, -1); // E1
+	// ScoreHeuristic heuristic(2271, -6105, 5, 5, 156, 215, 158, 78, 34, 5); // E2
+	ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3
+	
+	// Long runs:
+	// ScoreHeuristic heuristic(1256, -823, 5, 5, 144, 201, 115, 53, 43, 2); // E4
+	// ScoreHeuristic heuristic(341, -4576, 5, 5, 139, 191, 103, 57, 22, 12); // E5
+	// ScoreHeuristic heuristic(4710, -17597, 6, 6, 167, 172, 98, 35, 29, -10); // E6
+
+	// ScoreHeuristic heuristic(1716, -4330, 5, 5, 145, 209, 90, 38, 31, 3); // E7
+	
+	std::cerr << heuristic << std::endl;
+	Game g(heuristic);
 	g.play();
 	
 	std::cerr << table << std::endl;
