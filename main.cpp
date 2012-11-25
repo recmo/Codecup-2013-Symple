@@ -157,9 +157,13 @@ public:
 	int popcount() const ssefunc;
 	BoardMask& clear() ssefunc;
 	BoardMask& set(const BoardPoint& point) ssefunc;
+	BoardMask& clear(const BoardPoint& point) ssefunc;
 	bool isSet(const BoardPoint& point) const ssefunc;
 	bool isEmpty() const ssefunc;
 	BoardPoint firstPoint() const ssefunc;
+	
+	std::string toMoves();
+	static BoardMask fromMoves(const std::string& moves);
 	
 protected:
 	friend class PointIterator;
@@ -237,6 +241,7 @@ BoardMask BoardMask::connected(const BoardMask& seed) const
 	
 	// Loop until no more connections
 	do {
+		
 		// Fully extend in the right direction
 		s0 = _mm_or_si128(s0, _mm_andnot_si128(_mm_add_epi16(s0, m0), m0));
 		s1 = _mm_or_si128(s1, _mm_andnot_si128(_mm_add_epi16(s1, m1), m1));
@@ -402,6 +407,20 @@ inline BoardMask& BoardMask::set(const BoardPoint& point)
 	return *this;
 }
 
+inline BoardMask& BoardMask::clear(const BoardPoint& point)
+{
+	union {
+		uint16 rows[16];
+		m128 b[2];
+	};
+	b[0] = _mm_setzero_si128();
+	b[1] = _mm_setzero_si128();
+	rows[point.vertical()] = 1 << point.horizontal();
+	bits[0] = _mm_andnot_si128(b[0], bits[0]);
+	bits[1] = _mm_andnot_si128(b[1], bits[1]);
+	return *this;
+}
+
 inline bool BoardMask::isSet(const BoardPoint& point) const
 {
 	union {
@@ -542,6 +561,39 @@ BoardPoint PointIterator::randomPoint(const BoardMask& boardMask)
 	return pi.point();
 }
 
+
+//
+//  B O A R D   M A S K   M O V E S
+//
+
+std::string BoardMask::toMoves()
+{
+	std::stringstream result;
+	PointIterator pi(*this);
+	bool empty = true;
+	while(pi.next()) {
+		if(!empty)
+			result << "-";
+		result << pi.point();
+		empty = false;
+	}
+	return result.str();
+}
+
+BoardMask BoardMask::fromMoves(const std::string& moves)
+{
+	std::stringstream ss(moves);
+	BoardPoint move;
+	BoardMask result;
+	while(ss.good()) {
+		ss >> move;
+		std::cerr << "Move " << move << std::endl;
+		ss.get(); // the minus character
+		result.set(move);
+	}
+	return result;
+}
+
 //
 //   G R O U P   I T E R A T O R
 //
@@ -621,14 +673,17 @@ public:
 	void whiteMove(const BoardPoint& move) ssefunc;
 	void blackMove(const BoardPoint& move) ssefunc;
 	
+	void whiteMove(const BoardMask& move) ssefunc;
+	void blackMove(const BoardMask& move) ssefunc;
+	
 protected:
 	friend std::ostream& operator<<(std::ostream& out, const Board& board);
 	const static uint64 zobristWhite[15*15];
 	const static uint64 zobristBlack[15*15];
 	BoardMask _white;
 	BoardMask _black;
-	BoardMask _currentMove;
 	bool _hasExpanded;
+	uint32 _turn;
 	uint64 _hash;
 };
 
@@ -663,6 +718,25 @@ void Board::blackMove(const BoardPoint& move)
 	_black.set(move);
 	_hash ^= zobristBlack[(move.vertical() * 15) + move.horizontal()];
 }
+
+void Board::whiteMove(const BoardMask& move)
+{
+	_hasExpanded |= !((_white.expanded() | move).isEmpty());
+	_white |= move;
+	PointIterator pi(move);
+	while(pi.next())
+		_hash ^= zobristWhite[(pi.point().vertical() * 15) + pi.point().horizontal()];
+}
+
+void Board::blackMove(const BoardMask& move)
+{
+	_hasExpanded |= !((_white.expanded() | move).isEmpty());
+	_black |= move;
+	PointIterator pi(move);
+	while(pi.next())
+		_hash ^= zobristBlack[(pi.point().vertical() * 15) + pi.point().horizontal()];
+}
+
 
 void Board::recalculateHash()
 {
@@ -800,31 +874,53 @@ void TurnIterator::choose(const BoardPoint& point)
 //   M O V E S   F I N D E R
 //
 
-
 class MovesFinder
 {
 public:
 	MovesFinder(const Board& board);
 	
 	void findWhiteMoves();
+	void findBlackMoves();
+	
+	std::vector<BoardMask> validMoves() const { return _validMoves; }
+	
+	uint32 count() const { return _validMoves.size(); }
+	uint32 countUnique() const;
 	
 protected:
 	const Board& _board;
+	BoardMask _player;
+	std::vector<BoardMask> _validMoves;
+	
+	void findExploreMoves(const BoardMask& player, const BoardMask& opponent);
+	void findExpandMoves(const BoardMask& player, const BoardMask& opponent);
+	void expandMoves(const BoardMask& expandable, GroupIterator gi, const BoardMask& movePoints);
 };
 
 MovesFinder::MovesFinder(const Board& board)
 : _board(board)
 {
-	
 }
 
 void MovesFinder::findWhiteMoves()
 {
-	const BoardMask& player = _board.white();
-	const BoardMask& opponent = _board.black();
-	
-	std::vector<BoardMask> result;
-	
+	_player = _board.white();
+	findExploreMoves(_board.white(), _board.black());
+	findExpandMoves(_board.white(), _board.black());
+}
+
+void MovesFinder::findBlackMoves()
+{
+	_player = _board.black();
+	findExploreMoves(_board.black(), _board.white());
+	findExpandMoves(_board.black(), _board.white());
+	if(!_board.hasExpanded()) {
+		/// @todo If the turn number is ≥ 5 include the black expand-explore move
+	}
+}
+
+void MovesFinder::findExploreMoves(const BoardMask& player, const BoardMask& opponent)
+{
 	// Do some board algebra
 	BoardMask unoccupied = ~(player | opponent);
 	BoardMask expandable = player.expanded() & unoccupied;
@@ -833,23 +929,74 @@ void MovesFinder::findWhiteMoves()
 	// Add the explore moves
 	PointIterator exploreMoves(explorable);
 	while(exploreMoves.next()) {
-		BoardMask playerFinal = player;
-		playerFinal.set(exploreMoves.point());
-		result.push_back(playerFinal);
+		BoardMask exploreMove;
+		exploreMove.set(exploreMoves.point());
+		_validMoves.push_back(exploreMove);
 	}
+}
+
+void MovesFinder::findExpandMoves(const BoardMask& player, const BoardMask& opponent)
+{
+	// Do some board algebra
+	BoardMask unoccupied = ~(player | opponent);
+	BoardMask expandable = player.expanded() & unoccupied;
+	BoardMask explorable = unoccupied - expandable;
 	
 	// Add any expand moves, but be careful not to duplicate!
+	/// @todo The order of expanding the groups can be relevant!
 	GroupIterator gi(player);
-	while(gi.next()) {
-		const BoardMask& group = gi.group();
-		BoardMask groupExpand = group.expanded() & expandable;
-		if(groupExpand.isEmpty())
-			continue;
-		
-		// Recurse over the choice!
+	BoardMask movePoints;
+	expandMoves(expandable, gi, movePoints);
+}
+
+void MovesFinder::expandMoves(const BoardMask& expandable, GroupIterator gi, const BoardMask& movePoints)
+{
+	// If all groups are expanded we are done
+	if(!gi.next()) {
+		/// @todo Black additional explore move special case
+		// std::cerr << "Move = " << (_player | movePoints);
+		_validMoves.push_back(movePoints);
+		return;
 	}
 	
+	// Recurse over the expansion options
+	const BoardMask& group = gi.group();
+	BoardMask groupExpand = group.expanded() & expandable;
 	
+	// If the group is not alive or already grown we continue with the next group
+	if(groupExpand.isEmpty()) {
+		expandMoves(expandable, gi, movePoints);
+		return;
+	}
+	
+	// Recurse over the expansion choice!
+	PointIterator pi(groupExpand);
+	while(pi.next()) {
+		BoardMask myMove = movePoints;
+		myMove.set(pi.point());
+		BoardMask connected = _player.connected(myMove.expanded());
+		BoardMask newExpandable = expandable;
+		newExpandable -= connected.expand();
+		expandMoves(newExpandable, gi, myMove);
+	}
+}
+
+uint32 MovesFinder::countUnique() const
+{
+	return _validMoves.size();
+	std::vector<BoardMask> unique;
+	for(uint32 i = 0; i < _validMoves.size(); ++i) {
+		bool newMove = true;
+		for(uint32 j = 0; j < unique.size(); ++j) {
+			if(unique[j] == _validMoves[i]) {
+				newMove = false;
+				break;
+			}
+		}
+		if(newMove)
+			unique.push_back(_validMoves[i]);
+	}
+	return unique.size();
 }
 
 
@@ -1268,6 +1415,16 @@ void Train::play()
 {
 	bool whitesTurn = true;
 	while(!_board.gameOver()) {
+		
+		MovesFinder mf(_board);
+		if(whitesTurn) {
+			mf.findWhiteMoves();
+		} else {
+			mf.findBlackMoves();
+		}
+		// std::cerr << _board << std::endl;
+		std::cerr << "Move finder found " << mf.count() << "\t" << mf.countUnique() << std::endl;
+		
 		TurnIterator ti(
 			(whitesTurn) ? _board.white() : _board.black(),
 			(whitesTurn) ? _board.black() : _board.white());
@@ -1383,7 +1540,6 @@ void Benchmark::measure()
 	}
 }
 
-
 void Benchmark::round()
 {
 	// Play two games, A vs B and B vs A
@@ -1418,7 +1574,7 @@ protected:
 	Board _board;
 	bool _isWhite;
 	bool _isBlack;
-	std::string makeMoves();
+	BoardMask bestMove();
 	void receiveMoves(const std::string& moves);
 };
 
@@ -1444,10 +1600,14 @@ void Game::play()
 		receiveMoves(line);
 	}
 	for(;;) {
-		std::string moves = makeMoves();
+		BoardMask bestMoveMask = bestMove();
 		std::cerr << _board << std::endl;
-		std::cerr << "Out: " << moves << std::endl;
-		std::cout << moves << std::endl;
+		std::cerr << "Out: " << bestMoveMask.toMoves() << std::endl;
+		std::cout << bestMoveMask.toMoves() << std::endl;
+		if(_isWhite)
+			_board.whiteMove(bestMoveMask);
+		else
+			_board.blackMove(bestMoveMask);
 		if(_board.gameOver())
 			break;
 		std::cin >> line;
@@ -1463,20 +1623,13 @@ void Game::play()
 	return;
 }
 
-std::string Game::makeMoves()
+BoardMask Game::bestMove()
 {
-	/// @todo Consider whole move!
-	/// @todo Black special move when it is allowed and black has five groups
-	
-	std::stringstream result;
 	TurnIterator ti(
 		(_isWhite) ? _board.white() : _board.black(),
 		(_isWhite) ? _board.black() : _board.white());
-	std::vector<BoardPoint> moves;
+	BoardMask moves;
 	while(!ti.done()) {
-		if(!result.str().empty())
-			result << "-";
-		
 		BoardMask validMoves = ti.moves();
 		BoardMask goodMoves = validMoves;
 		sint32 goodScore = -0x7FFFFFFF;
@@ -1502,33 +1655,23 @@ std::string Game::makeMoves()
 		std::cerr << "Good score: " << goodScore << std::endl;
 		BoardPoint move = PointIterator::randomPoint(goodMoves);
 		ti.choose(move);
-		result << move;
-		moves.push_back(move);
+		moves.set(move);
 	}
-	for(std::size_t i = 0; i < moves.size(); ++i) {
-		if(_isWhite)
-			_board.whiteMove(moves[i]);
-		else
-			_board.blackMove(moves[i]);
-	}
-	return result.str();
+	return moves;
 }
 
 void Game::receiveMoves(const std::string& moves)
 {
-	std::stringstream ss(moves);
-	BoardPoint move;
-	while(ss.good()) {
-		ss >> move;
-		std::cerr << "Move " << move << std::endl;
-		ss.get(); // the minus character
-		if(_isWhite)
-			_board.blackMove(move);
-		else
-			_board.whiteMove(move);
-	}
+	BoardMask moveMask = BoardMask::fromMoves(moves);
+	if(_isWhite)
+		_board.blackMove(moveMask);
+	else
+		_board.whiteMove(moveMask);
 }
 
+//
+//  E V O L V E
+//
 
 void evolve(const ScoreHeuristic& heuristic)
 {
@@ -1587,11 +1730,27 @@ int main(int argc, char* argv[])
 	std::cerr << table << std::endl;
 	
 	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8
-	
+	std::cerr << heuristic << std::endl;
 	//evolve(heuristic);
 	//return 0;
-
-	std::cerr << heuristic << std::endl;
+	
+	Board b;
+	b.whiteMove(BoardPoint(2, 1));
+	b.whiteMove(BoardPoint(1, 2));
+	b.whiteMove(BoardPoint(3, 2));
+	b.whiteMove(BoardPoint(2, 3));
+	std::cerr << b << std::endl;
+	
+	MovesFinder mf(b);
+	mf.findWhiteMoves();
+	std::cerr << mf.count() << std::endl;
+	
+	// return 0;
+	
+	//Train t(heuristic, heuristic);
+	//t.play();
+	//return 0;
+	
 	Game g(heuristic);
 	g.play();
 	
