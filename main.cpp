@@ -7,16 +7,27 @@
 #include <limits>
 #include <unistd.h>
 #include <math.h>
-#include <string.h>
 #define ssefunc __attribute__ ((__target__ ("sse4.1")))
 #define always_inline __attribute__ ((always_inline))
 #pragma GCC target ("sse4.1")
-#define __MMX__
-#define __SSE__
-#define __SSE2__
-#define __SSE3__
-#define __SSSE3__
-#define __SSE4_1__
+#ifndef __MMX__
+	#define __MMX__
+#endif
+#ifndef __SSE__
+	#define __SSE__
+#endif
+#ifndef __SSE2__
+	#define __SSE2__
+#endif
+#ifndef __SSE3__
+	#define __SSE3__
+#endif
+#ifndef __SSSE3__
+	#define __SSSE3__
+#endif
+#ifndef __SSE4_1__
+	#define __SSE4_1__
+#endif
 #include <x86intrin.h>
 typedef uint8_t uint8;
 typedef uint16_t uint16;
@@ -639,7 +650,6 @@ Board::Board(const Board& board)
 {
 }
 
-
 void Board::whiteMove(const BoardPoint& move)
 {
 	_hasExpanded |= _white.expanded().isSet(move);
@@ -740,6 +750,8 @@ public:
 	BoardMask moves() const ssefunc { return _moves; }
 	void choose(const BoardPoint& point) ssefunc;
 	
+	std::vector<BoardMask> validMoves();
+	
 protected:
 	const BoardMask& _player;
 	const BoardMask& _opponent;
@@ -780,7 +792,66 @@ void TurnIterator::choose(const BoardPoint& point)
 	// and no expansion moves happened before
 	// black has the option of an additional exploration move
 	/// TODO
+	
+	/// @todo From the fifth group (or fifth move) black can deploy its move
 }
+
+//
+//   M O V E S   F I N D E R
+//
+
+
+class MovesFinder
+{
+public:
+	MovesFinder(const Board& board);
+	
+	void findWhiteMoves();
+	
+protected:
+	const Board& _board;
+};
+
+MovesFinder::MovesFinder(const Board& board)
+: _board(board)
+{
+	
+}
+
+void MovesFinder::findWhiteMoves()
+{
+	const BoardMask& player = _board.white();
+	const BoardMask& opponent = _board.black();
+	
+	std::vector<BoardMask> result;
+	
+	// Do some board algebra
+	BoardMask unoccupied = ~(player | opponent);
+	BoardMask expandable = player.expanded() & unoccupied;
+	BoardMask explorable = unoccupied - expandable;
+	
+	// Add the explore moves
+	PointIterator exploreMoves(explorable);
+	while(exploreMoves.next()) {
+		BoardMask playerFinal = player;
+		playerFinal.set(exploreMoves.point());
+		result.push_back(playerFinal);
+	}
+	
+	// Add any expand moves, but be careful not to duplicate!
+	GroupIterator gi(player);
+	while(gi.next()) {
+		const BoardMask& group = gi.group();
+		BoardMask groupExpand = group.expanded() & expandable;
+		if(groupExpand.isEmpty())
+			continue;
+		
+		// Recurse over the choice!
+	}
+	
+	
+}
+
 
 //
 //  T A B L E   E N T R Y
@@ -943,11 +1014,12 @@ uint64 Table::nextHash(uint64 hash)
 
 std::ostream& operator<<(std::ostream& out, const Table& table)
 {
-	std::cerr << "Table size:       " << table._size << " (" << (table._size * sizeof(TableEntry)) << " bytes)" << std::endl;
-	std::cerr << "Total queries:    " << table._hits  + table._misses + table._collisions << std::endl;
-	std::cerr << "Table hits:       " << table._hits << std::endl;
-	std::cerr << "Table misses:     " << table._misses << std::endl;
-	std::cerr << "Table collisions: " << table._collisions << std::endl;
+	out << "Table size:       " << table._size << " (" << (table._size * sizeof(TableEntry)) << " bytes)" << std::endl;
+	out << "Total queries:    " << table._hits  + table._misses + table._collisions << std::endl;
+	out << "Table hits:       " << table._hits << std::endl;
+	out << "Table misses:     " << table._misses << std::endl;
+	out << "Table collisions: " << table._collisions << std::endl;
+	return out;
 }
 
 //
@@ -985,17 +1057,39 @@ protected:
 	void irradiate(sint32* parameter, sint32 sievert);
 };
 
+// ScoreHeuristic heuristic(3000, -6000, 7, 13, 180, 220, 187, 87, 37, 12);
+
+// ScoreHeuristic heuristic(2370, -5410, 5, 5, 167, 177, 148, 82, 33, -1); // E1
+// ScoreHeuristic heuristic(2271, -6105, 5, 5, 156, 215, 158, 78, 34, 5); // E2
+// ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3 <-- Very good!
+// ScoreHeuristic heuristic(1256, -823, 5, 5, 144, 201, 115, 53, 43, 2); // E4
+// ScoreHeuristic heuristic(341, -4576, 5, 5, 139, 191, 103, 57, 22, 12); // E5
+// ScoreHeuristic heuristic(4710, -17597, 6, 6, 167, 172, 98, 35, 29, -10); // E6
+// ScoreHeuristic heuristic(1716, -4330, 5, 5, 145, 209, 90, 38, 31, 3); // E7
+
+// New re-runs on E3
+// ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8 <-- Slightly better!
+// ScoreHeuristic heuristic(7127, -2330, 6, 6, 151, 188, 147, 65, 43, 11); // E9
+// ScoreHeuristic heuristic(6526, -1872, 6, 8, 172, 172, 156, 75, 42, 13); // E10
+// ScoreHeuristic heuristic(5813, -3234, 6, 6, 143, 154, 109, 61, 31, 11); // E11
+
+// Evolution of E8
+// ScoreHeuristic heuristic(10738, -2378, 6, 6, 164, 213, 122, 59, 23, 8); // E12
+// ScoreHeuristic heuristic(13007, -2269, 6, 6, 153, 198, 129, 61, 27, 10); // E13
+// ScoreHeuristic heuristic(9970, -2214, 5, 5, 139, 219, 114, 58, 30, 12); // E14
+// ScoreHeuristic heuristic(11030, -2112, 6, 6, 144, 215, 121, 64, 25, 10); // E15
+
 ScoreHeuristic::ScoreHeuristic()
-: earlyGroupPoints(7864)
-, earlyManyGroupPoints(-2363)
+: earlyGroupPoints(10197)
+, earlyManyGroupPoints(-2277)
 , manyTransitionBegin(6)
-, manyTransitionEnd(8)
-, earlyTransistionBegin(155)
-, earlyTransistionEnd(180)
-, firstFreedomPoints(160)
-, secondFreedomPoints(70)
-, thirdFreedomPoints(45)
-, fourthFreedomPoints(12)
+, manyTransitionEnd(6)
+, earlyTransistionBegin(147)
+, earlyTransistionEnd(215)
+, firstFreedomPoints(130)
+, secondFreedomPoints(66)
+, thirdFreedomPoints(29)
+, fourthFreedomPoints(13)
 {
 }
 
@@ -1028,34 +1122,31 @@ sint32 ScoreHeuristic::mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32
 
 void ScoreHeuristic::irradiate(sint32 sievert)
 {
-	ScoreHeuristic old = *this;
-	do {
-		// Irradiate 
-		irradiate(&earlyGroupPoints, sievert);
-		irradiate(&earlyManyGroupPoints, sievert);
-		irradiate(&manyTransitionBegin, sievert);
-		irradiate(&manyTransitionEnd, sievert);
-		irradiate(&earlyTransistionBegin, sievert);
-		irradiate(&earlyTransistionEnd, sievert);
-		irradiate(&firstFreedomPoints, sievert);
-		irradiate(&secondFreedomPoints, sievert);
-		irradiate(&thirdFreedomPoints, sievert);
-		irradiate(&fourthFreedomPoints, sievert);
-		
-		// Sanetize
-		if(manyTransitionEnd > 40)
-			manyTransitionEnd = 40;
-		if(manyTransitionBegin < 0)
-			manyTransitionBegin = 0;
-		if(earlyTransistionBegin < 0)
-			earlyTransistionBegin = 0;
-		if(earlyTransistionEnd > 225)
-			earlyTransistionEnd = 225;
-		if(manyTransitionBegin > manyTransitionEnd)
-			manyTransitionEnd = manyTransitionBegin;
-		if(earlyTransistionBegin > earlyTransistionEnd)
-			earlyTransistionEnd = earlyTransistionBegin;
-	} while(memcmp(this, &old, sizeof(ScoreHeuristic())) == 0);
+	// Irradiate 
+	irradiate(&earlyGroupPoints, sievert);
+	irradiate(&earlyManyGroupPoints, sievert);
+	irradiate(&manyTransitionBegin, sievert);
+	irradiate(&manyTransitionEnd, sievert);
+	irradiate(&earlyTransistionBegin, sievert);
+	irradiate(&earlyTransistionEnd, sievert);
+	irradiate(&firstFreedomPoints, sievert);
+	irradiate(&secondFreedomPoints, sievert);
+	irradiate(&thirdFreedomPoints, sievert);
+	irradiate(&fourthFreedomPoints, sievert);
+	
+	// Sanetize
+	if(manyTransitionEnd > 40)
+		manyTransitionEnd = 40;
+	if(manyTransitionBegin < 0)
+		manyTransitionBegin = 0;
+	if(earlyTransistionBegin < 0)
+		earlyTransistionBegin = 0;
+	if(earlyTransistionEnd > 225)
+		earlyTransistionEnd = 225;
+	if(manyTransitionBegin > manyTransitionEnd)
+		manyTransitionEnd = manyTransitionBegin;
+	if(earlyTransistionBegin > earlyTransistionEnd)
+		earlyTransistionEnd = earlyTransistionBegin;
 }
 
 void ScoreHeuristic::irradiate(sint32* parameter, sint32 sievert)
@@ -1144,6 +1235,7 @@ std::ostream& operator<<(std::ostream& out, const ScoreHeuristic& heuristic)
 	out << heuristic.secondFreedomPoints << ", ";
 	out << heuristic.thirdFreedomPoints << ", ";
 	out << heuristic.fourthFreedomPoints << ")";
+	return out;
 }
 
 //
@@ -1214,7 +1306,7 @@ void Train::play()
 			ti.choose(move);
 			moves.push_back(move);
 		}
-		for(int i = 0; i < moves.size(); ++i) {
+		for(std::size_t i = 0; i < moves.size(); ++i) {
 			if(whitesTurn)
 				_board.whiteMove(moves[i]);
 			else
@@ -1246,7 +1338,7 @@ public:
 	void round();
 	
 protected:
-	const uint32 _cutoff = 1000;
+	static const uint32 _cutoff = 1000;
 	const ScoreHeuristic& _heuristicA;
 	const ScoreHeuristic& _heuristicB;
 	uint32 _trials;
@@ -1262,7 +1354,6 @@ Benchmark::Benchmark(const ScoreHeuristic& a, const ScoreHeuristic& b)
 , _squared(0.0)
 {
 }
-
 
 void Benchmark::measure()
 {
@@ -1374,6 +1465,9 @@ void Game::play()
 
 std::string Game::makeMoves()
 {
+	/// @todo Consider whole move!
+	/// @todo Black special move when it is allowed and black has five groups
+	
 	std::stringstream result;
 	TurnIterator ti(
 		(_isWhite) ? _board.white() : _board.black(),
@@ -1411,7 +1505,7 @@ std::string Game::makeMoves()
 		result << move;
 		moves.push_back(move);
 	}
-	for(int i = 0; i < moves.size(); ++i) {
+	for(std::size_t i = 0; i < moves.size(); ++i) {
 		if(_isWhite)
 			_board.whiteMove(moves[i]);
 		else
@@ -1440,17 +1534,20 @@ void evolve(const ScoreHeuristic& heuristic)
 {
 	ScoreHeuristic def = heuristic;
 	ScoreHeuristic best = heuristic;
-	const int initialMutationRate = 250;
-	const int rounds = 400;
+	const int initialMutationRate = 100;
+	const int rounds = 1500;
 	for(int i = 0; i < rounds; ++i) {
+		
+		int sievert = initialMutationRate - ((initialMutationRate * i) / rounds);
+		
 		std::cerr << "." << std::flush;
-		if(i % 100 == 0) {
-			std::cerr << " " << i << std::endl;
+		if(i % 10 == 0) {
+			std::cerr << " " << i << " " << sievert << std::endl;
 		}
 		
 		// Create a mutant form
 		ScoreHeuristic mutant = best;
-		mutant.irradiate(initialMutationRate - ((initialMutationRate * i) / rounds));
+		mutant.irradiate(sievert);
 		
 		// The mutant must win from the current best
 		Benchmark bm(mutant, best);
@@ -1489,24 +1586,10 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	std::cerr << table << std::endl;
 	
-	// ScoreHeuristic heuristic(3000, -6000, 7, 13, 180, 220, 187, 87, 37, 12);
+	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8
 	
-	// ScoreHeuristic heuristic(2370, -5410, 5, 5, 167, 177, 148, 82, 33, -1); // E1
-	// ScoreHeuristic heuristic(2271, -6105, 5, 5, 156, 215, 158, 78, 34, 5); // E2
-	// ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3 <-- Very good!
-	// ScoreHeuristic heuristic(1256, -823, 5, 5, 144, 201, 115, 53, 43, 2); // E4
-	// ScoreHeuristic heuristic(341, -4576, 5, 5, 139, 191, 103, 57, 22, 12); // E5
-	// ScoreHeuristic heuristic(4710, -17597, 6, 6, 167, 172, 98, 35, 29, -10); // E6
-	// ScoreHeuristic heuristic(1716, -4330, 5, 5, 145, 209, 90, 38, 31, 3); // E7
-	
-	// New re-runs on E3
-	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8 <-- Slightly better!
-	// ScoreHeuristic heuristic(7127, -2330, 6, 6, 151, 188, 147, 65, 43, 11); // E9
-	// ScoreHeuristic heuristic(6526, -1872, 6, 8, 172, 172, 156, 75, 42, 13); // E10
-	// ScoreHeuristic heuristic(5813, -3234, 6, 6, 143, 154, 109, 61, 31, 11); // E11
-	
-	// evolve(heuristic);
-	// return 0;
+	//evolve(heuristic);
+	//return 0;
 
 	std::cerr << heuristic << std::endl;
 	Game g(heuristic);
