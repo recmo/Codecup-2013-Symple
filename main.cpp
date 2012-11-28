@@ -1287,66 +1287,34 @@ class MovesFinder
 {
 public:
 	MovesFinder(const Board& board, const ScoreHeuristic& heuristic);
-	
 	void findMoves();
-	
-	const std::vector<BoardMask>& validMoves() const { return _validMoves; }
-	
-	BoardMask randomMove();
-	BoardMask bestMove();
-	
-	uint32 count() const { return _validMoves.size(); }
+	const BoardMask& bestMove() const { return _bestMove; }
 	
 protected:
 	const Board& _board;
 	const ScoreHeuristic& _heuristic;
-	std::vector<BoardMask> _validMoves;
 	std::vector<BoardMask> _groupExpanded;
 	uint _opponentGroupCount;
 	uint _playerDeadGroupCount;
+	BoardMask _bestMove;
+	sint32 _bestScore;
+	uint _count;
 	
 	void expandMoves(uint index, const BoardMask& expandable, BoardMask& movePoints);
-	sint32 evaluate(const BoardMask& movePoints);
+	void evaluateMove(const BoardMask& movePoints);
+	sint32 estimateScore(const BoardMask& movePoints);
 };
 
 MovesFinder::MovesFinder(const Board& board, const ScoreHeuristic& heuristic)
 : _board(board)
 , _heuristic(heuristic)
-, _validMoves()
 , _groupExpanded()
 , _opponentGroupCount(0)
 , _playerDeadGroupCount(0)
+, _bestMove()
+, _bestScore(-0x7FFFFFFF)
+, _count(0)
 {
-}
-
-BoardMask MovesFinder::bestMove()
-{
-	// Find the best move
-	BoardMask bestMove;
-	sint32 bestScore = -0x7FFFFFFF;
-	for(uint32 i = 0; i < _validMoves.size(); ++i) {
-		BoardMask move = _validMoves[i];
-		Board finalBoard = _board;
-		finalBoard.playTurn(move);
-		// sint32 score = -_heuristic.evaluate(finalBoard);
-		sint32 score = evaluate(move);
-		if(score > bestScore) {
-			bestScore = score;
-			bestMove = move;
-		} else if (score == bestScore) {
-			if(rand() % 2) { /// @todo Stream select
-				bestScore = score;
-				bestMove = move;
-			}
-		}
-	}
-	return bestMove;
-}
-
-BoardMask MovesFinder::randomMove()
-{
-	uint32 index = rand() % _validMoves.size();
-	return _validMoves[index];
 }
 
 void MovesFinder::findMoves()
@@ -1359,11 +1327,6 @@ void MovesFinder::findMoves()
 	// Calculate the opponent groups
 	_opponentGroupCount = GroupIterator::count(_board.opponent());
 	
-	// Add the explore moves
-	PointIterator exploreMoves(explorable);
-	while(exploreMoves.next())
-		_validMoves.push_back(exploreMoves.point());
-	
 	// Collect the groups
 	GroupIterator gi(_board.player());
 	while(gi.next()) {
@@ -1375,12 +1338,14 @@ void MovesFinder::findMoves()
 			_groupExpanded.push_back(groupExpandable);
 	}
 	
-	// Recurse over the groups
+	// Evaluate the explore moves
+	PointIterator exploreMoves(explorable);
+	while(exploreMoves.next())
+		evaluateMove(exploreMoves.point());
+	
+	// Recursively search the expansion moves
 	BoardMask movePoints;
 	expandMoves(0, expandable, movePoints);
-	
-	// std::cerr << _board;
-	std::cerr << _validMoves.size() << std::endl;
 }
 
 void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask& movePoints)
@@ -1388,12 +1353,8 @@ void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask
 	// If all groups are expanded we are done
 	if(index >= _groupExpanded.size()) {
 		/// @todo Black additional explore move special case
-		// std::cerr << "Move = " << movePoints.toMoves() << std::endl;
-		
-		// evaluate(movePoints);
-		
 		if(!movePoints.isEmpty())
-			_validMoves.push_back(movePoints);
+			evaluateMove(movePoints);
 		return;
 	}
 	
@@ -1407,6 +1368,7 @@ void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask
 	}
 	
 	// Recurse over the expansion choice!
+	/// @todo If every expansion leads to blocking of two groups, also try no groups?
 	PointIterator pi(groupExpand);
 	while(pi.next()) {
 		BoardMask newExpandable = expandable;
@@ -1420,8 +1382,23 @@ void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask
 	}
 }
 
+void MovesFinder::evaluateMove(const BoardMask& movePoints)
+{
+	++_count;
+	sint32 score = estimateScore(movePoints);
+	if(score > _bestScore) {
+		_bestScore = score;
+		_bestMove = movePoints;
+	} else if (score == _bestScore) {
+		if(rand() % 2) { /// @todo Stream select
+			_bestScore = score;
+			_bestMove = movePoints;
+		}
+	}
+}
+
 /// Quickly evaluate the score of a given move
-sint32 MovesFinder::evaluate(const BoardMask& movePoints)
+sint32 MovesFinder::estimateScore(const BoardMask& movePoints)
 {
 	uint moveCount = movePoints.popcount();
 	
@@ -1440,22 +1417,6 @@ sint32 MovesFinder::evaluate(const BoardMask& movePoints)
 	}
 	
 	BoardMask player = _board.player() | movePoints;
-	
-	/*
-	sint32 playerGroups = GroupIterator::count(player);
-	if(groupCount != playerGroups) {
-		std::cerr << "=========================================================================================================================" << std::endl;
-		std::cerr << _board;
-		std::cerr << movePoints;
-		std::cerr << "pdg = " << _playerDeadGroupCount << std::endl;
-		std::cerr << "ges = " << _groupExpanded.size() << std::endl;
-		std::cerr << "mc  = " << moveCount << std::endl;
-		std::cerr << "mcb  = " << movePoints.countBridges() << std::endl;
-		std::cerr << "groups = " << playerGroups << std::endl; 
-		std::cerr << "real groups = " << groupCount << std::endl; 
-		std::cerr << "=========================================================================================================================" << std::endl;
-	}
-	*/
 	
 	sint32 score = _heuristic.evaluate(player, _board.opponent(), groupCount, _opponentGroupCount);
 	return score;
@@ -1557,7 +1518,6 @@ void Benchmark::measure()
 		if(muMax < 0.0)
 			return;
 		if(_trials >= _cutoff) {
-			std::cerr << ":" << std::flush;
 			return;
 		}
 		
@@ -1567,6 +1527,7 @@ void Benchmark::measure()
 
 void Benchmark::round()
 {
+	std::cerr << "." << std::flush;
 	// Play two games, A vs B and B vs A
 	// return the sum of the final scores
 	sint32 score = 0;
@@ -1704,8 +1665,8 @@ int main(int argc, char* argv[])
 	
 	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8
 	std::cerr << heuristic << std::endl;
-	//evolve(heuristic);
-	//return 0;
+	evolve(heuristic);
+	return 0;
 	
 	/*
 	Board b;
@@ -1721,9 +1682,11 @@ int main(int argc, char* argv[])
 	return 0;
 	*/
 	
-	// Train t(heuristic, heuristic);
-	// t.play();
-	// return 0;
+	//for(int i = 0; i < 10; ++i) {
+	//	Train t(heuristic, heuristic);
+	//	t.play();
+	//}
+	//return 0;
 	
 	InteractiveGame g(heuristic);
 	g.play();
