@@ -1221,6 +1221,7 @@ sint32 ScoreHeuristic::evaluate(const BoardMask& player, const BoardMask& oppone
 	
 	// For each separate group 6 points will be subtracted.
 	/// @todo Loop free equation
+	/// @todo Try different rating for death groups, or better, measure the liveliness
 	sint32 lateGroupScore = groupPoints * (playerGroups - opponentGroups);
 	sint32 earlyGroupScore = 0;
 	for(uint i = 0; i < playerGroups; ++i)
@@ -1296,8 +1297,6 @@ public:
 	
 	uint32 count() const { return _validMoves.size(); }
 	
-	void compare(const std::vector<BoardMask>& other) const;
-	
 protected:
 	const Board& _board;
 	const ScoreHeuristic& _heuristic;
@@ -1316,12 +1315,12 @@ MovesFinder::MovesFinder(const Board& board, const ScoreHeuristic& heuristic)
 , _validMoves()
 , _groupExpanded()
 , _opponentGroupCount(0)
+, _playerDeadGroupCount(0)
 {
 }
 
 BoardMask MovesFinder::bestMove()
 {
-	/*
 	// Find the best move
 	BoardMask bestMove;
 	sint32 bestScore = -0x7FFFFFFF;
@@ -1329,33 +1328,18 @@ BoardMask MovesFinder::bestMove()
 		BoardMask move = _validMoves[i];
 		Board finalBoard = _board;
 		finalBoard.playTurn(move);
-		sint32 score = - _heuristic.evaluate(finalBoard);
+		// sint32 score = -_heuristic.evaluate(finalBoard);
+		sint32 score = evaluate(move);
 		if(score > bestScore) {
 			bestScore = score;
 			bestMove = move;
+		} else if (score == bestScore) {
+			if(rand() % 2) { /// @todo Stream select
+				bestScore = score;
+				bestMove = move;
+			}
 		}
 	}
-	// evaluate(bestMove);
-	return bestMove;
-	*/
-	
-	
-	// Find the best move
-	BoardMask bestMove;
-	sint32 bestScore = -0x7FFFFFFF;
-	for(uint32 i = 0; i < _validMoves.size(); ++i) {
-		BoardMask move = _validMoves[i];
-		Board finalBoard = _board;
-		finalBoard.playTurn(move);
-		sint32 score = -_heuristic.evaluate(finalBoard);
-		if(_board.blackToMove())
-			score = -score;
-		if(score > bestScore) {
-			bestScore = score;
-			bestMove = move;
-		}
-	}
-	// evaluate(bestMove);
 	return bestMove;
 }
 
@@ -1436,6 +1420,7 @@ void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask
 	}
 }
 
+/// Quickly evaluate the score of a given move
 sint32 MovesFinder::evaluate(const BoardMask& movePoints)
 {
 	uint moveCount = movePoints.popcount();
@@ -1443,195 +1428,37 @@ sint32 MovesFinder::evaluate(const BoardMask& movePoints)
 	// Count the number of groups after the move
 	sint32 groupCount = 0;
 	if(moveCount == 1) {
-		// Explore move or expansion of a single group
 		groupCount = _playerDeadGroupCount + _groupExpanded.size();
+		
+		// Test if the move is an explore move. If so, a new group is created
+		if((movePoints.expanded() & _board.player()).isEmpty())
+			++groupCount;
+		
 	} else {
+		// Overlapping bridges never occur in simulation, so we just ignore them
 		groupCount = _playerDeadGroupCount + moveCount - movePoints.countBridges();
 	}
 	
 	BoardMask player = _board.player() | movePoints;
 	
+	/*
 	sint32 playerGroups = GroupIterator::count(player);
+	if(groupCount != playerGroups) {
+		std::cerr << "=========================================================================================================================" << std::endl;
+		std::cerr << _board;
+		std::cerr << movePoints;
+		std::cerr << "pdg = " << _playerDeadGroupCount << std::endl;
+		std::cerr << "ges = " << _groupExpanded.size() << std::endl;
+		std::cerr << "mc  = " << moveCount << std::endl;
+		std::cerr << "mcb  = " << movePoints.countBridges() << std::endl;
+		std::cerr << "groups = " << playerGroups << std::endl; 
+		std::cerr << "real groups = " << groupCount << std::endl; 
+		std::cerr << "=========================================================================================================================" << std::endl;
+	}
+	*/
+	
 	sint32 score = _heuristic.evaluate(player, _board.opponent(), groupCount, _opponentGroupCount);
-	
-	sint32 realScore;
-	Board b;
-	b.white(player);
-	b.black(_board.opponent());
-	realScore = _heuristic.evaluate(b);
-	
-	std::cerr << b;
-	std::cerr << "groups " << playerGroups << " \t " << groupCount << std::endl; 
-	std::cerr << "score " << realScore << " \t " << score << std::endl;
-	
 	return score;
-}
-
-
-void MovesFinder::compare(const std::vector< BoardMask >& other) const
-{
-	uint32 notCommon = 0;
-	for(uint i = 0; i < _validMoves.size(); ++i) {
-		bool found = false;
-		for(uint j = 0; j < other.size(); ++j) {
-			if(other[j] == _validMoves[i])
-				found = true;
-		}
-		if(!found)
-			++notCommon;
-	}
-	std::cerr << "My " << _validMoves.size() << "\t" << other.size() << "\t" << notCommon << std::endl;
-}
-
-//
-//   M O V E S   F I N D E R
-//
-
-class MovesFinder2
-{
-public:
-	MovesFinder2(const Board& board);
-	
-	void findWhiteMoves();
-	void findBlackMoves();
-	
-	const std::vector<BoardMask>& validMoves() const { return _validMoves; }
-	
-	uint32 count() const { return _validMoves.size(); }
-	uint32 countUnique() const;
-	
-	BoardMask bestMove(const ScoreHeuristic& heuristic) const;
-	
-protected:
-	const Board& _board;
-	BoardMask _player;
-	std::vector<BoardMask> _validMoves;
-	
-	void findExploreMoves(const BoardMask& player, const BoardMask& opponent);
-	void findExpandMoves(const BoardMask& player, const BoardMask& opponent);
-	void expandMoves(const BoardMask& expandable, GroupIterator gi, const BoardMask& movePoints);
-};
-
-MovesFinder2::MovesFinder2(const Board& board)
-: _board(board)
-{
-}
-
-void MovesFinder2::findWhiteMoves()
-{
-	_player = _board.white();
-	findExploreMoves(_board.white(), _board.black());
-	findExpandMoves(_board.white(), _board.black());
-}
-
-void MovesFinder2::findBlackMoves()
-{
-	_player = _board.black();
-	findExploreMoves(_board.black(), _board.white());
-	findExpandMoves(_board.black(), _board.white());
-	if(!_board.hasExpanded()) {
-		/// @todo If the turn number is â¥ 5 include the black expand-explore move
-	}
-}
-
-void MovesFinder2::findExploreMoves(const BoardMask& player, const BoardMask& opponent)
-{
-	// Do some board algebra
-	BoardMask unoccupied = ~(player | opponent);
-	BoardMask expandable = player.expanded() & unoccupied;
-	BoardMask explorable = unoccupied - expandable;
-	
-	// Add the explore moves
-	PointIterator exploreMoves(explorable);
-	while(exploreMoves.next()) {
-		BoardMask exploreMove;
-		exploreMove.set(exploreMoves.point());
-		_validMoves.push_back(exploreMove);
-	}
-}
-
-void MovesFinder2::findExpandMoves(const BoardMask& player, const BoardMask& opponent)
-{
-	// Do some board algebra
-	BoardMask unoccupied = ~(player | opponent);
-	BoardMask expandable = player.expanded() & unoccupied;
-	BoardMask explorable = unoccupied - expandable;
-	
-	// Add any expand moves, but be careful not to duplicate!
-	/// @todo The order of expanding the groups can be relevant!
-	GroupIterator gi(player);
-	BoardMask movePoints;
-	expandMoves(expandable, gi, movePoints);
-}
-
-void MovesFinder2::expandMoves(const BoardMask& expandable, GroupIterator gi, const BoardMask& movePoints)
-{
-	// If all groups are expanded we are done
-	if(!gi.next()) {
-		/// @todo Black additional explore move special case
-		// std::cerr << "Move = " << movePoints.toMoves() << std::endl;
-		if(!movePoints.isEmpty())
-			_validMoves.push_back(movePoints);
-		return;
-	}
-	
-	// Recurse over the expansion options
-	const BoardMask& group = gi.group();
-	BoardMask groupExpand = group.expanded() & expandable;
-	
-	// If the group is not alive or already grown we continue with the next group
-	if(groupExpand.isEmpty()) {
-		expandMoves(expandable, gi, movePoints);
-		return;
-	}
-	
-	// Recurse over the expansion choice!
-	PointIterator pi(groupExpand);
-	while(pi.next()) {
-		BoardMask myMove = movePoints;
-		myMove.set(pi.point());
-		BoardMask connected = _player.connected(myMove.expanded());
-		BoardMask newExpandable = expandable;
-		newExpandable -= connected.expanded();
-		expandMoves(newExpandable, gi, myMove);
-	}
-}
-
-uint32 MovesFinder2::countUnique() const
-{
-	return _validMoves.size();
-	std::vector<BoardMask> unique;
-	for(uint32 i = 0; i < _validMoves.size(); ++i) {
-		bool newMove = true;
-		for(uint32 j = 0; j < unique.size(); ++j) {
-			if(unique[j] == _validMoves[i]) {
-				newMove = false;
-				break;
-			}
-		}
-		if(newMove)
-			unique.push_back(_validMoves[i]);
-	}
-	return unique.size();
-}
-
-BoardMask MovesFinder2::bestMove(const ScoreHeuristic& heuristic) const
-{
-	// Find the best move
-	BoardMask bestMove;
-	sint32 bestScore = -0x7FFFFFFF;
-	for(uint32 i = 0; i < _validMoves.size(); ++i) {
-		BoardMask move = _validMoves[i];
-		Board finalBoard = _board;
-		finalBoard.playTurn(move);
-		sint32 score = -heuristic.evaluate(finalBoard);
-		if(score > bestScore) {
-			bestScore = score;
-			bestMove = move;
-		}
-	}
-	// evaluate(bestMove);
-	return bestMove;
 }
 
 //
@@ -1664,22 +1491,10 @@ void Train::play()
 {
 	bool whitesTurn = true;
 	while(!_board.gameOver()) {
-		std::cerr << "=========================================================================================================================" << std::endl;
-		std::cerr << _board;
 		const ScoreHeuristic& heuristic = _board.whiteToMove() ? _whiteHeuristic : _blackHeuristic;
 		MovesFinder mf(_board, heuristic);
 		mf.findMoves();
-		MovesFinder2 mf2(_board);
-		if(_board.whiteToMove())
-			mf2.findWhiteMoves();
-		else
-			mf2.findBlackMoves();
-		
-		std::cerr << "Moves : " << mf2.count() << "\t" << mf.count() << std::endl;
-		
-		mf.compare(mf2.validMoves());
-		
-		BoardMask bestMove = mf2.bestMove(heuristic);
+		BoardMask bestMove = mf.bestMove();
 		_board.playTurn(bestMove);
 	}
 }
@@ -1687,7 +1502,6 @@ void Train::play()
 //
 // Benchmark
 //
-
 
 class Benchmark {
 public:
@@ -1826,14 +1640,6 @@ BoardMask InteractiveGame::bestMove()
 	MovesFinder mf(_board, _heuristic);
 	mf.findMoves();
 	return mf.bestMove();
-	
-	// Find all valid moves
-	MovesFinder2 mf2(_board);
-	if(_board.whiteToMove())
-		mf2.findWhiteMoves();
-	else
-		mf2.findBlackMoves();
-	return mf2.bestMove(_heuristic);
 }
 
 //
