@@ -36,6 +36,8 @@ typedef uint32_t uint32;
 typedef uint64_t uint64;
 #define m128 __m128i __attribute__ ((aligned (16))) 
 
+#define LOCAL
+
 
 /// @see http://fierz.ch/strategy2.htm
 /// @see http://senseis.xmp.net/?UCT
@@ -818,19 +820,18 @@ inline std::ostream& operator<<(std::ostream& out, const Board& board)
 class ScoreHeuristic {
 public:
 	ScoreHeuristic();
-	ScoreHeuristic(sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32);
+	ScoreHeuristic(sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32, sint32);
 	~ScoreHeuristic() { }
 	static sint32 mix(sint32 a, sint32 b, sint32 left, sint32 right, sint32 pos);
 	
 	// Game scores, multiplied by 1000
 	static const sint32 piecePoints = 1000;
-	static const sint32 groupPoints = -6000;
+	static const sint32 deadGroupPoints = -6000;
 	
 	// Heuristics
 	sint32 earlyGroupPoints;
 	sint32 earlyManyGroupPoints;
-	sint32 manyTransitionBegin;
-	sint32 manyTransitionEnd;
+	sint32 manyTransition;
 	sint32 earlyTransistionBegin;
 	sint32 earlyTransistionEnd;
 	sint32 firstFreedomPoints;
@@ -840,40 +841,19 @@ public:
 	
 	void irradiate(sint32 sievert);
 	
-	sint32 evaluate(const BoardMask& player, const BoardMask& opponent, uint playerGroups, uint opponentGroups) const ssefunc;
+	sint32 evaluate(const BoardMask& player, const BoardMask& opponent, uint playerLiveGroups, uint opponentLiveGroups) const ssefunc;
 	sint32 evaluate(const Board& board) const ssefunc;
+	
+	uint cohesion(const BoardMask& player, const BoardMask& unoccupied) const ssefunc;
 	
 protected:
 	void irradiate(sint32* parameter, sint32 sievert);
 };
 
-// ScoreHeuristic heuristic(3000, -6000, 7, 13, 180, 220, 187, 87, 37, 12);
-
-// ScoreHeuristic heuristic(2370, -5410, 5, 5, 167, 177, 148, 82, 33, -1); // E1
-// ScoreHeuristic heuristic(2271, -6105, 5, 5, 156, 215, 158, 78, 34, 5); // E2
-// ScoreHeuristic heuristic(7864, -2363, 6, 8, 155, 180, 160, 70, 45, 12); // E3 <-- Very good!
-// ScoreHeuristic heuristic(1256, -823, 5, 5, 144, 201, 115, 53, 43, 2); // E4
-// ScoreHeuristic heuristic(341, -4576, 5, 5, 139, 191, 103, 57, 22, 12); // E5
-// ScoreHeuristic heuristic(4710, -17597, 6, 6, 167, 172, 98, 35, 29, -10); // E6
-// ScoreHeuristic heuristic(1716, -4330, 5, 5, 145, 209, 90, 38, 31, 3); // E7
-
-// New re-runs on E3
-// ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8 <-- Slightly better!
-// ScoreHeuristic heuristic(7127, -2330, 6, 6, 151, 188, 147, 65, 43, 11); // E9
-// ScoreHeuristic heuristic(6526, -1872, 6, 8, 172, 172, 156, 75, 42, 13); // E10
-// ScoreHeuristic heuristic(5813, -3234, 6, 6, 143, 154, 109, 61, 31, 11); // E11
-
-// Evolution of E8
-// ScoreHeuristic heuristic(10738, -2378, 6, 6, 164, 213, 122, 59, 23, 8); // E12
-// ScoreHeuristic heuristic(13007, -2269, 6, 6, 153, 198, 129, 61, 27, 10); // E13
-// ScoreHeuristic heuristic(9970, -2214, 5, 5, 139, 219, 114, 58, 30, 12); // E14
-// ScoreHeuristic heuristic(11030, -2112, 6, 6, 144, 215, 121, 64, 25, 10); // E15
-
 ScoreHeuristic::ScoreHeuristic()
 : earlyGroupPoints(10197)
 , earlyManyGroupPoints(-2277)
-, manyTransitionBegin(6)
-, manyTransitionEnd(6)
+, manyTransition(6)
 , earlyTransistionBegin(147)
 , earlyTransistionEnd(215)
 , firstFreedomPoints(130)
@@ -883,17 +863,16 @@ ScoreHeuristic::ScoreHeuristic()
 {
 }
 
-ScoreHeuristic::ScoreHeuristic(sint32 a, sint32 b, sint32 c, sint32 d, sint32 e, sint32 f, sint32 g, sint32 h, sint32 i, sint32 j)
+ScoreHeuristic::ScoreHeuristic(sint32 a, sint32 b, sint32 c, sint32 d, sint32 e, sint32 f, sint32 g, sint32 h, sint32 i)
 : earlyGroupPoints(a)
 , earlyManyGroupPoints(b)
-, manyTransitionBegin(c)
-, manyTransitionEnd(d)
-, earlyTransistionBegin(e)
-, earlyTransistionEnd(f)
-, firstFreedomPoints(g)
-, secondFreedomPoints(h)
-, thirdFreedomPoints(i)
-, fourthFreedomPoints(j)
+, manyTransition(c)
+, earlyTransistionBegin(d)
+, earlyTransistionEnd(e)
+, firstFreedomPoints(f)
+, secondFreedomPoints(g)
+, thirdFreedomPoints(h)
+, fourthFreedomPoints(i)
 {
 }
 
@@ -914,8 +893,7 @@ void ScoreHeuristic::irradiate(sint32 sievert)
 	// Irradiate 
 	irradiate(&earlyGroupPoints, sievert);
 	irradiate(&earlyManyGroupPoints, sievert);
-	irradiate(&manyTransitionBegin, sievert);
-	irradiate(&manyTransitionEnd, sievert);
+	irradiate(&manyTransition, sievert);
 	irradiate(&earlyTransistionBegin, sievert);
 	irradiate(&earlyTransistionEnd, sievert);
 	irradiate(&firstFreedomPoints, sievert);
@@ -924,16 +902,14 @@ void ScoreHeuristic::irradiate(sint32 sievert)
 	irradiate(&fourthFreedomPoints, sievert);
 	
 	// Sanetize
-	if(manyTransitionEnd > 40)
-		manyTransitionEnd = 40;
-	if(manyTransitionBegin < 0)
-		manyTransitionBegin = 0;
+	if(manyTransition > 40)
+		manyTransition = 40;
+	if(manyTransition < 0)
+		manyTransition = 0;
 	if(earlyTransistionBegin < 0)
 		earlyTransistionBegin = 0;
 	if(earlyTransistionEnd > 225)
 		earlyTransistionEnd = 225;
-	if(manyTransitionBegin > manyTransitionEnd)
-		manyTransitionEnd = manyTransitionBegin;
 	if(earlyTransistionBegin > earlyTransistionEnd)
 		earlyTransistionEnd = earlyTransistionBegin;
 }
@@ -952,8 +928,20 @@ void ScoreHeuristic::irradiate(sint32* parameter, sint32 sievert)
 	*parameter = newValue;
 }
 
-sint32 ScoreHeuristic::evaluate(const BoardMask& player, const BoardMask& opponent, uint playerGroups, uint opponentGroups) const
+sint32 ScoreHeuristic::evaluate(const BoardMask& player, const BoardMask& opponent, uint playerLiveGroups, uint opponentLiveGroups) const
 {
+	/// @todo Distinguish live versus dead groups
+	///  - Group 'liveliness' ?
+	
+	/// @todo Measure 'influence',
+	///  - areas you can reach before the opponent
+	///  - small surrounded areas (the smaller the better!)
+	
+	/// @todo Measure distance between groups, how many moves to connect all groups?
+	///       Discount if groups can not be connected anymore?
+	
+	/// @todo Count the number of groups created by ~player. i.e. the division of the board
+	
 	sint32 score = 0;
 	sint32 playerPieces = player.popcount();
 	sint32 opponentPieces = opponent.popcount();
@@ -962,19 +950,71 @@ sint32 ScoreHeuristic::evaluate(const BoardMask& player, const BoardMask& oppone
 	// The score of each player is determined by counting the number of stones he has placed on the board. 
 	score += piecePoints * (playerPieces - opponentPieces);
 	
+	/// NEW: Count the number of groups created by the players
+	score += 10000 * GroupIterator::count(~player);
+	score -= 10000 * GroupIterator::count(~opponent);
+	
+	BoardMask unoccupied = ~(player | opponent);
+	
+	/// NEW: Differentiate live and non-live groups
+	playerLiveGroups = 0;
+	opponentLiveGroups = 0;
+	uint playerDeadGroups = 0;
+	uint opponentDeadGroups = 0;
+	uint playerSepparation = 0;
+	uint opponentSepparation = 0;
+	GroupIterator gip(player);
+	while(gip.next()) {
+		const BoardMask& group = gip.group();
+		if((group.expanded() & unoccupied).isEmpty())
+			++playerDeadGroups;
+		else
+			++playerLiveGroups;
+		
+		// NEW: Count the number of moves to connect the groups to each other
+		BoardMask other = player - group;
+		BoardMask groupExpand = group;
+		uint groupSepparation = 0;
+		for(;;) {
+			groupExpand = groupExpand.expanded() & unoccupied;
+			if(groupExpand & other)
+				break;
+			++groupSepparation;
+		}
+		playerSepparation += groupSepparation;
+	}
+	GroupIterator gio(opponent);
+	while(gio.next()) {
+		const BoardMask& group = gio.group();
+		if((group.expanded() & unoccupied).isEmpty())
+			++opponentDeadGroups;
+		else
+			++opponentLiveGroups;
+		
+		
+	}
+	
+	// Six point subtracted for dead groups
+	score += deadGroupPoints * (playerDeadGroups - opponentDeadGroups);
+	
 	// For each separate group 6 points will be subtracted.
-	/// @todo Loop free equation
-	/// @todo Try different rating for death groups, or better, measure the liveliness
-	sint32 lateGroupScore = groupPoints * (playerGroups - opponentGroups);
+	sint32 lateGroupScore = deadGroupPoints * (playerLiveGroups - opponentLiveGroups);
 	sint32 earlyGroupScore = 0;
-	for(uint i = 0; i < playerGroups; ++i)
-		earlyGroupScore += mix(earlyGroupPoints, earlyManyGroupPoints, manyTransitionBegin, manyTransitionEnd, i);
-	for(uint i = 0; i < opponentGroups; ++i)
-		earlyGroupScore -= mix(earlyGroupPoints, earlyManyGroupPoints, manyTransitionBegin, manyTransitionEnd, i);
+	if(playerLiveGroups <= manyTransition) {
+		earlyGroupScore += earlyGroupPoints * playerLiveGroups;
+	} else {
+		earlyGroupScore += earlyGroupPoints * manyTransition;
+		earlyGroupScore += earlyManyGroupPoints * (playerLiveGroups - manyTransition);
+	}
+	if(opponentLiveGroups <= manyTransition) {
+		earlyGroupScore -= earlyGroupPoints * opponentLiveGroups;
+	} else {
+		earlyGroupScore -= earlyGroupPoints * manyTransition;
+		earlyGroupScore -= earlyManyGroupPoints * (opponentLiveGroups - manyTransition);
+	}
 	score += mix(earlyGroupScore, lateGroupScore, earlyTransistionBegin, earlyTransistionEnd, progress);
 	
 	// Add points for expansion room
-	BoardMask unoccupied = ~(player | opponent);
 	BoardMask playerExpanded = player.expanded() & unoccupied;
 	BoardMask opponentExpanded = opponent.expanded() & unoccupied;
 	score += (firstFreedomPoints - secondFreedomPoints - thirdFreedomPoints - fourthFreedomPoints) * (playerExpanded.popcount() - opponentExpanded.popcount());
@@ -998,12 +1038,42 @@ sint32 ScoreHeuristic::evaluate(const BoardMask& player, const BoardMask& oppone
 
 sint32 ScoreHeuristic::evaluate(const Board& board) const
 {
+	BoardMask unoccupied = ~(board.white() | board.black());
+	uint playerLiveGroups = 0;
+	uint opponentLiveGroups = 0;
+	uint playerDeadGroups = 0;
+	uint opponentDeadGroups = 0;
+	
+	GroupIterator playerGroups(board.player());
+	while(playerGroups.next()) {
+		BoardMask group = playerGroups.group();
+		if((group.expanded() & unoccupied).isEmpty())
+			++playerDeadGroups;
+		else
+			++playerLiveGroups;
+	}
+	GroupIterator opponentGroups(board.opponent());
+	while(opponentGroups.next()) {
+		BoardMask group = opponentGroups.group();
+		if((group.expanded() & unoccupied).isEmpty())
+			++opponentDeadGroups;
+		else
+			++opponentLiveGroups;
+	}
+	
 	return evaluate(
 		board.player(),
 		board.opponent(),
-		GroupIterator::count(board.player()),
-		GroupIterator::count(board.opponent())
+		playerLiveGroups + playerDeadGroups,
+		opponentLiveGroups + opponentDeadGroups
 	);
+}
+
+/// Returns the number of stones required to connect as many of the groups of the player as possible
+/// @note It may be impossible to connect some groups!
+uint ScoreHeuristic::cohesion(const BoardMask& player, const BoardMask& unoccupied) const
+{
+	
 }
 
 std::ostream& operator<<(std::ostream& out, const ScoreHeuristic& heuristic)
@@ -1011,8 +1081,7 @@ std::ostream& operator<<(std::ostream& out, const ScoreHeuristic& heuristic)
 	out << "Heuristic(";
 	out << heuristic.earlyGroupPoints << ", ";
 	out << heuristic.earlyManyGroupPoints << ", ";
-	out << heuristic.manyTransitionBegin << ", ";
-	out << heuristic.manyTransitionEnd << ", ";
+	out << heuristic.manyTransition << ", ";
 	out << heuristic.earlyTransistionBegin << ", ";
 	out << heuristic.earlyTransistionEnd << ", ";
 	out << heuristic.firstFreedomPoints << ", ";
@@ -1089,6 +1158,9 @@ void GreedyMovesFinder::choose(const BoardPoint& point)
 
 BoardMask GreedyMovesFinder::bestMove()
 {
+	/// @todo Go over all opponents single-piece-moves and take the minimum
+	/// Will this will work when doing a greedy search?
+	
 	uint opponentGroups = GroupIterator::count(_opponent);
 	while(!done()) {
 		BoardPoint bestPoint;
@@ -1098,7 +1170,12 @@ BoardMask GreedyMovesFinder::bestMove()
 		while(pi.next()) {
 			BoardMask player =  _player | turnMoves();
 			player.set(pi.point());
-			sint32 score = _heuristic.evaluate(player, _opponent, GroupIterator::count(player), opponentGroups);
+			
+			Board b;
+			b.white(player);
+			b.black(_opponent);
+			sint32 score = _heuristic.evaluate(b);
+			
 			if(score > bestScore) {
 				bestScore = score;
 				bestPoint = pi.point();
@@ -1130,6 +1207,9 @@ public:
 	
 	void printStats();
 	
+	static uint total() { return _total; }
+	static void total(uint value) { _total = value; }
+	
 protected:
 	const Board& _board;
 	const ScoreHeuristic& _heuristic;
@@ -1155,7 +1235,7 @@ BoardMask MovesFinder::bestOrGreedy(const Board& board, const ScoreHeuristic& he
 {
 	// Fall back to a faster greedy search if the board gets to complex
 	uint progress = (board.white() | board.black()).popcount(); 
-	if(_total > 5000000 && progress < 150)
+	if(_total > 5000000 && progress < 140)
 		return GreedyMovesFinder::bestMove(board, heuristic);
 	else
 		return MovesFinder::bestMove(board, heuristic);
@@ -1274,6 +1354,8 @@ void MovesFinder::expandMoves(uint index, const BoardMask& expandable, BoardMask
 
 void MovesFinder::evaluateMove(const BoardMask& movePoints)
 {
+	/// @todo Go over all opponents single-piece-moves and take the minimum
+	
 	++_count;
 	
 	// Resrevoir sample a random move
@@ -1355,14 +1437,21 @@ Train::Train(const ScoreHeuristic& white, const ScoreHeuristic& black)
 
 void Train::play()
 {
+	uint totalWhite = 0;
+	uint totalBlack =  0;
 	while(!_board.gameOver()) {
 		const ScoreHeuristic& heuristic = _board.whiteToMove() ? _whiteHeuristic : _blackHeuristic;
 		// std::cerr << (_board.whiteToMove() ? "white " : "black ");
 		BoardMask bestMove;
-		if(_board.whiteToMove())
-			bestMove = GreedyMovesFinder::bestMove(_board, heuristic);
-		else
-			bestMove = GreedyMovesFinder::bestMove(_board, heuristic);
+		if(_board.whiteToMove()) {
+			MovesFinder::total(totalWhite);
+			bestMove = MovesFinder::bestOrGreedy(_board, heuristic);
+			totalWhite = MovesFinder::total();
+		} else {
+			MovesFinder::total(totalBlack);
+			bestMove = MovesFinder::bestOrGreedy(_board, heuristic);
+			totalBlack = MovesFinder::total();
+		}
 		_board.playTurn(bestMove);
 		// std::cerr << _board << std::endl;
 	}
@@ -1462,6 +1551,8 @@ void Benchmark::round()
 
 void evolve(const ScoreHeuristic& heuristic)
 {
+	/// @todo Change to a system where we benchmark the total points collected against a reference group of opponents
+	
 	ScoreHeuristic def = heuristic;
 	ScoreHeuristic best = heuristic;
 	const int initialMutationRate = 100;
@@ -1649,8 +1740,9 @@ int main(int argc, char* argv[])
 	std::cerr << "sizeof(uint64): " << sizeof(uint64_t) << std::endl;
 	std::cerr << "sizeof(m128): " << sizeof(m128) << std::endl;
 	
-	ScoreHeuristic heuristic(10197, -2277, 6, 6, 147, 215, 130, 66, 29, 13); // E8
+	ScoreHeuristic heuristic(10197, -2277, 6, 147, 215, 130, 66, 29, 13); // E8
 	std::cerr << heuristic << std::endl;
+	// evolve(heuristic);
 	InteractiveGame g(heuristic);
 	g.play();
 	
